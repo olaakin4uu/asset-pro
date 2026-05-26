@@ -1,0 +1,1962 @@
+// ============================================================
+// AssetPro — Tenant Schema
+// Tables per tenant schema (provisioned at sign-up)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma-tenant"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// INFRASTRUCTURE — Migration tracking
+// ============================================================================
+model TenantMigration {
+  id          String    @id @db.VarChar(255)
+  description String?   @db.Text
+  appliedAt   DateTime? @default(now()) @db.Timestamp(6)
+
+  @@map("_tenant_migrations")
+}
+
+// ============================================================================
+// CORE MODULE - Users, Companies, Branches
+// ============================================================================
+
+model User {
+  id                     Int       @id @default(autoincrement())
+  name                   String
+  email                  String    @unique
+  emailVerifiedAt        DateTime?
+  password               String
+  companyId              Int?
+  branchId               Int?
+  entityId               Int?
+  rememberToken          String?
+  twoFactorSecret        String?   @db.Text
+  twoFactorRecoveryCodes String?   @db.Text
+  twoFactorConfirmedAt   DateTime?
+  userType               UserType  @default(EMPLOYEE)
+  themePreference        String?
+  locale                 String    @default("en")
+  signaturePath          String?
+  inviteToken            String?
+  inviteExpiresAt        DateTime?
+  deletedAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  company Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch  Branch?     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  entity  IfrsEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  // Created records (audit trail)
+  createdCompanies Company[] @relation("CompanyCreator")
+  createdBranches  Branch[]  @relation("BranchCreator")
+  createdRoles     Role[]    @relation("RoleCreator")
+  createdUsers     User[]    @relation("UserCreator")
+
+  // Updated records (audit trail)
+  updatedCompanies Company[] @relation("CompanyUpdater")
+  updatedBranches  Branch[]  @relation("BranchUpdater")
+  updatedRoles     Role[]    @relation("RoleUpdater")
+  updatedUsers     User[]    @relation("UserUpdater")
+
+  // Self-referential audit (who created/updated this user)
+  createdById   Int?
+  updatedById   Int?
+  createdByUser User? @relation("UserCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedByUser User? @relation("UserUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  // Approvals
+  processApprovals ProcessApproval[]
+
+  // Personal access tokens
+  tokens PersonalAccessToken[]
+
+  // Audit logs
+  auditLogs AuditLog[]
+
+  // Messages sent
+  sentMessages Message[] @relation("MessageSender")
+
+  // Roles and permissions (Spatie-like)
+  roles       UserRole[]
+  permissions UserPermission[]
+
+  // Multi-company / multi-branch access grants
+  companyAccess UserCompanyAccess[]
+  branchAccess  UserBranchAccess[]
+
+  @@index([companyId])
+  @@index([branchId])
+  @@index([entityId])
+  @@index([companyId, userType])
+  @@index([branchId, userType])
+  @@map("users")
+}
+
+enum UserType {
+  EMPLOYEE
+  CUSTOMER
+  SUPPLIER
+  INVESTOR
+  ADMIN
+  SYSTEM
+}
+
+model PersonalAccessToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  name       String
+  token      String    @unique @db.VarChar(64)
+  abilities  Json?
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("personal_access_tokens")
+}
+
+model Company {
+  id                 Int       @id @default(autoincrement())
+  entityId           Int?
+  name               String
+  displayName        String?
+  email              String?
+  phone              String?
+  address            String?   @db.Text
+  city               String?
+  state              String?
+  country            String?
+  postalCode         String?
+  businessType       String    @default("general")
+  currency           String    @default("NGN") @db.VarChar(3)
+  taxNumber          String?
+  registrationNumber String?
+  website            String?
+  logoPath           String?
+  isActive           Boolean   @default(true)
+  createdById        Int?
+  updatedById        Int?
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  entity    IfrsEntity? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  createdBy User?       @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?       @relation("CompanyUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  branches Branch[]
+  users    User[]
+
+  // Process approvals
+  approvalFlows     ProcessApprovalFlow[]
+  approvalFlowSteps ProcessApprovalFlowStep[]
+  processApprovals  ProcessApproval[]
+  approvalStatuses  ProcessApprovalStatus[]
+
+  // Accounting
+  accounts       IfrsAccount[]
+  currencies     IfrsCurrency[]
+  transactions   IfrsTransaction[]
+  journalEntries JournalEntry[]
+  fiscalYears    FiscalYear[]
+  periodLocks    PeriodLock[]
+  banks          Bank[]
+
+  // Petty Cash
+  pettyCashFunds PettyCashFund[]
+
+  // Expense requests
+  expenseRequests ExpenseRequest[]
+
+  // Bank transfers
+  bankTransfers BankTransfer[]
+
+  // Unposted accounting entries
+  unpostedAccountingEntries UnpostedAccountingEntry[]
+
+  // Notifications
+  notifications Notification[]
+
+  // Messages
+  messages Message[]
+
+  // Assets
+  assetClasses AssetClass[]
+  assets       Asset[]
+  assetSettings AssetSettings?
+
+  // Departments
+  departments Department[]
+
+  userAccess UserCompanyAccess[]
+
+  @@index([isActive, country])
+  @@index([createdById])
+  @@map("companies")
+}
+
+model Branch {
+  id           Int       @id @default(autoincrement())
+  companyId    Int
+  name         String
+  code         String
+  email        String?
+  phone        String?
+  address      String?   @db.Text
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?
+  timezone     String    @default("Africa/Lagos")
+  isActive     Boolean   @default(true)
+  isHeadOffice Boolean   @default(false)
+  createdById  Int?
+  updatedById  Int?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("BranchCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?   @relation("BranchUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  users User[]
+  banks Bank[]
+
+  userAccess UserBranchAccess[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@index([companyId, isHeadOffice])
+  @@index([code])
+  @@index([createdById])
+  @@map("branches")
+}
+
+model Department {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  branchId           Int?
+  parentDepartmentId Int?
+  name               String
+  code               String
+  description        String?   @db.Text
+  departmentHead     String?
+  budgetAllocation   Decimal?  @db.Decimal(15, 2)
+  costCenter         String?
+  phone              String?
+  email              String?
+  location           String?   @db.Text
+  isActive           Boolean   @default(true)
+  notes              String?   @db.Text
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   Department? @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id], onDelete: SetNull)
+  children Department[] @relation("DepartmentHierarchy")
+
+  @@unique([companyId, branchId, name])
+  @@unique([companyId, branchId, code])
+  @@index([companyId, branchId])
+  @@map("departments")
+}
+
+// ============================================================================
+// CORE MODULE - Process Approvals
+// ============================================================================
+
+model ProcessApprovalFlow {
+  id                   Int      @id @default(autoincrement())
+  name                 String
+  approvableType       String
+  entitySlug           String?
+  description          String?  @db.Text
+  conditions           Json?
+  notificationSettings Json?
+  isActive             Boolean  @default(true)
+  isDefault            Boolean  @default(false)
+  priority             Int      @default(10)
+  autoSubmit           Boolean  @default(false)
+  parallelApproval     Boolean  @default(false)
+  companyId            Int?
+  createdById          Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
+
+  // Relations
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  steps ProcessApprovalFlowStep[]
+
+  @@index([companyId])
+  @@index([approvableType])
+  @@map("process_approval_flows")
+}
+
+model ProcessApprovalFlowStep {
+  id                    Int            @id @default(autoincrement())
+  processApprovalFlowId Int
+  name                  String?
+  description           String?        @db.Text
+  roleId                Int?
+  approverType          String         @default("role")
+  approverIds           Json?
+  approvalMode          String         @default("any")
+  permissions           Json?
+  employees             Json?
+  escalationEmployees   Json?
+  order                 Int?
+  stepOrder             Int            @default(0)
+  action                ApprovalAction @default(APPROVE)
+  conditions            Json?
+  isRequired            Boolean        @default(true)
+  timeoutHours          Int?
+  escalationRoleId      Int?
+  escalationUserId      Int?
+  isActive              Boolean        @default(true)
+  stepType              String         @default("approve")
+  overrideAllowed       Boolean        @default(false)
+  overrideApproverType  String?
+  overrideApproverIds   Json?
+  overrideNoteMinLength Int            @default(30)
+  overrideNotifySkipped Boolean        @default(true)
+  branchId              Int?
+  branchScope           String         @default("all")
+  isLocked              Boolean        @default(false)
+  isFinalStep           Boolean        @default(false)
+  companyId             Int?
+  tenantId              String?        @db.VarChar(38)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  processApprovalFlow ProcessApprovalFlow @relation(fields: [processApprovalFlowId], references: [id], onDelete: Cascade)
+  role                Role?               @relation(fields: [roleId], references: [id])
+  company             Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  approvals ProcessApproval[]
+
+  @@index([roleId])
+  @@index([order])
+  @@index([tenantId])
+  @@map("process_approval_flow_steps")
+}
+
+enum ApprovalAction {
+  APPROVE
+  VERIFY
+  CHECK
+}
+
+model ProcessApproval {
+  id                        Int       @id @default(autoincrement())
+  approvableType            String
+  approvableId              Int
+  processApprovalFlowStepId Int?
+  approvalAction            String    @default("Approved") @db.VarChar(64)
+  approverName              String?   @db.Text
+  comment                   String?   @db.Text
+  signaturePath             String?
+  approvedAt                DateTime?
+  userId                    Int
+  companyId                 Int?
+  tenantId                  String?   @db.VarChar(38)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  // Relations
+  processApprovalFlowStep ProcessApprovalFlowStep? @relation(fields: [processApprovalFlowStepId], references: [id], onDelete: Cascade)
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company                 Company?                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([approvableType, approvableId])
+  @@index([tenantId])
+  @@map("process_approvals")
+}
+
+model ProcessApprovalStatus {
+  id             Int      @id @default(autoincrement())
+  approvableType String
+  approvableId   Int
+  steps          Json?
+  status         String   @default("CREATED") @db.VarChar(10)
+  creatorId      Int?
+  companyId      Int?
+  tenantId       String?  @db.VarChar(38)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([approvableType, approvableId])
+  @@index([tenantId])
+  @@map("process_approval_statuses")
+}
+
+model ApprovableModelRegistry {
+  id                    Int      @id @default(autoincrement())
+  modelClass            String   @unique
+  displayName           String
+  moduleName            String
+  availableFields       Json?
+  defaultConditions     Json?
+  notificationTemplates Json?
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("approvable_model_registry")
+}
+
+// ============================================================================
+// CORE MODULE - Roles & Permissions (Spatie-like)
+// ============================================================================
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String
+  guardName   String   @default("web")
+  description String?
+  createdById Int?
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  createdBy User? @relation("RoleCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("RoleUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  permissions   RolePermission[]
+  users         UserRole[]
+  approvalSteps ProcessApprovalFlowStep[]
+
+  @@unique([name, guardName])
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  name        String
+  guardName   String   @default("web")
+  module      String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+  users UserPermission[]
+
+  @@unique([name, guardName])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_has_permissions")
+}
+
+model UserRole {
+  userId    Int
+  roleId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model UserPermission {
+  userId       Int
+  permissionId Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+  @@map("user_permissions")
+}
+
+model UserCompanyAccess {
+  userId    Int
+  companyId Int
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, companyId])
+  @@map("user_company_access")
+}
+
+model UserBranchAccess {
+  userId   Int
+  branchId Int
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  @@map("user_branch_access")
+}
+
+// ============================================================================
+// CORE MODULE - Messages & Notifications
+// ============================================================================
+
+model Message {
+  id                Int             @id @default(autoincrement())
+  uuid              String          @unique @default(uuid())
+  companyId         Int
+  senderId          Int
+  subject           String
+  body              String          @db.Text
+  bodyHtml          String?         @db.Text
+  priority          MessagePriority @default(NORMAL)
+  referenceableType String?
+  referenceableId   Int?
+  parentId          Int?
+  isDraft           Boolean         @default(false)
+  sentAt            DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sender  User      @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  parent  Message?  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Message[] @relation("MessageReplies")
+
+  @@index([companyId])
+  @@index([senderId])
+  @@index([sentAt])
+  @@index([parentId])
+  @@index([isDraft, sentAt])
+  @@map("messages")
+}
+
+enum MessagePriority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model Notification {
+  id             String    @id @default(uuid())
+  type           String
+  notifiableType String
+  notifiableId   Int
+  data           Json
+  readAt         DateTime?
+  companyId      Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([notifiableType, notifiableId])
+  @@index([readAt])
+  @@map("notifications")
+}
+
+// ============================================================================
+// CORE MODULE - Audit Log
+// ============================================================================
+
+model AuditLog {
+  id            Int      @id @default(autoincrement())
+  userId        Int?
+  event         String
+  auditableType String
+  auditableId   Int
+  oldValues     Json?
+  newValues     Json?
+  url           String?
+  ipAddress     String?
+  userAgent     String?  @db.Text
+  tags          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([auditableType, auditableId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audits")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - IFRS Entities & Categories
+// ============================================================================
+
+model IfrsEntity {
+  id              Int       @id @default(autoincrement())
+  name            String
+  currencyId      Int?
+  parentEntityId  Int?
+  year            Int?
+  multiCurrency   Boolean   @default(false)
+  midYearBalances Boolean   @default(false)
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  currency      IfrsCurrency? @relation("EntityCurrency", fields: [currencyId], references: [id], onDelete: SetNull)
+  parentEntity  IfrsEntity?   @relation("EntityHierarchy", fields: [parentEntityId], references: [id], onDelete: SetNull)
+  childEntities IfrsEntity[]  @relation("EntityHierarchy")
+
+  users            User[]
+  companies        Company[]
+  accounts         IfrsAccount[]
+  categories       IfrsCategory[]
+  reportingPeriods IfrsReportingPeriod[]
+  vats             IfrsVat[]
+  balances         IfrsBalance[]
+  transactions     IfrsTransaction[]
+  ledgers          IfrsLedger[]
+
+  @@map("ifrs_entities")
+}
+
+model IfrsCurrency {
+  id            Int       @id @default(autoincrement())
+  name          String
+  code          String    @db.VarChar(3)
+  symbol        String?
+  decimalPlaces Int       @default(2)
+  entityId      Int?
+  isActive      Boolean   @default(true)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  entities IfrsEntity[] @relation("EntityCurrency")
+  accounts IfrsAccount[]
+
+  // Exchange rates
+  exchangeRatesFrom IfrsExchangeRate[] @relation("ExchangeRateFrom")
+  exchangeRatesTo   IfrsExchangeRate[] @relation("ExchangeRateTo")
+  company           Company?           @relation(fields: [companyId], references: [id])
+  companyId         Int?
+
+  @@unique([entityId, code])
+  @@index([entityId])
+  @@map("ifrs_currencies")
+}
+
+model IfrsReportingPeriod {
+  id           Int       @id @default(autoincrement())
+  entityId     Int
+  calendarYear Int
+  number       Int
+  label        String
+  startDate    DateTime  @db.Date
+  endDate      DateTime  @db.Date
+  status       String    @default("OPEN")
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  entity IfrsEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, calendarYear, number])
+  @@index([entityId, calendarYear])
+  @@map("ifrs_reporting_periods")
+}
+
+model IfrsCategory {
+  id           Int       @id @default(autoincrement())
+  entityId     Int?
+  name         String
+  categoryType String
+  code         String?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  entity   IfrsEntity?   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  accounts IfrsAccount[]
+
+  @@index([entityId])
+  @@index([categoryType])
+  @@map("ifrs_categories")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Chart of Accounts
+// ============================================================================
+
+model IfrsAccount {
+  id                Int       @id @default(autoincrement())
+  entityId          Int?
+  companyId         Int?
+  categoryId        Int?
+  currencyId        Int?
+  code              String
+  name              String
+  description       String?   @db.Text
+  accountType       String
+  ifrs18AccountType String?
+  parentId          Int?
+  isPosting         Boolean   @default(true)
+  closingRate       Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  normalBalance     String    @default("debit") @db.VarChar(20)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  entity   IfrsEntity?   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  company  Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category IfrsCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  currency IfrsCurrency? @relation(fields: [currencyId], references: [id], onDelete: SetNull)
+  parent   IfrsAccount?  @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children IfrsAccount[] @relation("AccountHierarchy")
+
+  balances           IfrsBalance[]
+  debitTransactions  IfrsTransaction[]  @relation("DebitAccount")
+  creditTransactions IfrsTransaction[]  @relation("CreditAccount")
+  ledgers            IfrsLedger[]
+  journalLines       JournalEntryLine[]
+
+  // Bank accounts
+  bankAccounts Bank[]
+
+  // Bank transfer items
+  transferItemsSource BankTransferItem[] @relation("TransferItemSourceAccount")
+  transferItemsDest   BankTransferItem[] @relation("TransferItemDestAccount")
+
+  @@unique([entityId, code])
+  @@unique([companyId, code])
+  @@index([categoryId])
+  @@index([accountType])
+  @@map("ifrs_accounts")
+}
+
+model IfrsVat {
+  id             Int       @id @default(autoincrement())
+  entityId       Int?
+  name           String
+  code           String
+  rate           Decimal   @db.Decimal(5, 2)
+  accountId      Int?
+  inputAccountId Int?
+  isActive       Boolean   @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  entity IfrsEntity? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId])
+  @@map("ifrs_vats")
+}
+
+model IfrsBalance {
+  id                 Int       @id @default(autoincrement())
+  entityId           Int
+  accountId          Int
+  year               Int
+  period             Int
+  balance            Decimal   @db.Decimal(15, 2)
+  balanceType        String    @default("debit")
+  createdBy          Int?
+  approvedAt         DateTime?
+  approvedBy         Int?
+  approvalComment    String?   @db.Text
+  lastModifiedBy     Int?
+  modificationReason String?   @db.Text
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  entity  IfrsEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  account IfrsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, accountId, year, period])
+  @@map("ifrs_balances")
+}
+
+model IfrsTransaction {
+  id              Int       @id @default(autoincrement())
+  entityId        Int
+  companyId       Int?
+  transactionDate DateTime  @db.Date
+  transactionNo   String?
+  transactionType String?
+  debitAccountId  Int
+  creditAccountId Int
+  amount          Decimal   @db.Decimal(15, 2)
+  narration       String?   @db.Text
+  reference       String?
+  referenceType   String?
+  referenceId     Int?
+  currency        String?   @db.VarChar(3)
+  exchangeRate    Decimal?  @db.Decimal(15, 6)
+  baseAmount      Decimal?  @db.Decimal(15, 2)
+  isCleared       Boolean   @default(false)
+  clearedDate     DateTime?
+  isReversed      Boolean   @default(false)
+  reversedBy      Int?
+  reversalOf      Int?
+  posted          Boolean   @default(false)
+  postedAt        DateTime?
+  postedBy        Int?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  entity        IfrsEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  company       Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  debitAccount  IfrsAccount @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount IfrsAccount @relation("CreditAccount", fields: [creditAccountId], references: [id])
+
+  @@index([entityId])
+  @@index([companyId])
+  @@index([transactionDate])
+  @@index([transactionNo])
+  @@map("ifrs_transactions")
+}
+
+model IfrsLedger {
+  id            Int       @id @default(autoincrement())
+  entityId      Int
+  accountId     Int
+  transactionId Int?
+  date          DateTime  @db.Date
+  narration     String?   @db.Text
+  debit         Decimal?  @db.Decimal(15, 2)
+  credit        Decimal?  @db.Decimal(15, 2)
+  balance       Decimal   @db.Decimal(15, 2)
+  reference     String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  entity  IfrsEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  account IfrsAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([entityId, accountId])
+  @@index([date])
+  @@map("ifrs_ledgers")
+}
+
+model IfrsExchangeRate {
+  id             Int       @id @default(autoincrement())
+  fromCurrencyId Int
+  toCurrencyId   Int
+  rate           Decimal   @db.Decimal(15, 6)
+  validFrom      DateTime  @db.Date
+  validTo        DateTime? @db.Date
+  source         String?
+  isActive       Boolean   @default(true)
+  createdBy      Int?
+  approvedBy     Int?
+  approvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  fromCurrency IfrsCurrency @relation("ExchangeRateFrom", fields: [fromCurrencyId], references: [id], onDelete: Cascade)
+  toCurrency   IfrsCurrency @relation("ExchangeRateTo", fields: [toCurrencyId], references: [id], onDelete: Cascade)
+
+  @@index([fromCurrencyId, toCurrencyId, validFrom])
+  @@map("ifrs_exchange_rates")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Journal Entries
+// ============================================================================
+
+model JournalEntry {
+  id                  Int       @id @default(autoincrement())
+  companyId           Int
+  entryNumber         String
+  entryDate           DateTime  @db.Date
+  reference           String?
+  narration           String?   @db.Text
+  totalDebit          Decimal   @db.Decimal(15, 2)
+  totalCredit         Decimal   @db.Decimal(15, 2)
+  status              String    @default("draft")
+  journalType         String?
+  sourceType          String?
+  sourceId            Int?
+  requiresApproval    Boolean   @default(false)
+  approvalLevel       Int       @default(0)
+  reviewedAt          DateTime?
+  reviewedBy          Int?
+  reviewComment       String?   @db.Text
+  approvedAt          DateTime?
+  approvedBy          Int?
+  approvalComment     String?   @db.Text
+  rejectedAt          DateTime?
+  rejectedBy          Int?
+  rejectionReason     String?   @db.Text
+  postedAt            DateTime?
+  postedBy            Int?
+  reversedAt          DateTime?
+  reversedBy          Int?
+  reversalOf          Int?
+  reversalReason      String?   @db.Text
+  fiscalYearId        Int?
+  createdBy           Int?
+  lastModifiedBy      Int?
+  modificationReason  String?   @db.Text
+  deletedAt           DateTime?
+  deletedBy           Int?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fiscalYear FiscalYear? @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
+
+  lines JournalEntryLine[]
+
+  @@unique([companyId, entryNumber])
+  @@index([entryDate])
+  @@index([status])
+  @@index([companyId, status, entryDate])
+  @@index([requiresApproval, status])
+  @@index([createdBy])
+  @@map("journal_entries")
+}
+
+model JournalEntryLine {
+  id             Int      @id @default(autoincrement())
+  journalEntryId Int
+  accountId      Int
+  debit          Decimal? @db.Decimal(15, 2)
+  credit         Decimal? @db.Decimal(15, 2)
+  narration      String?  @db.Text
+  reference      String?
+  currencyCode   String?  @db.VarChar(3)
+  foreignDebit   Decimal? @db.Decimal(15, 2)
+  foreignCredit  Decimal? @db.Decimal(15, 2)
+  exchangeRate   Decimal? @db.Decimal(15, 6)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      IfrsAccount  @relation(fields: [accountId], references: [id])
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@map("journal_entry_line_items")
+}
+
+model FiscalYear {
+  id               Int       @id @default(autoincrement())
+  companyId        Int
+  name             String
+  startDate        DateTime  @db.Date
+  endDate          DateTime  @db.Date
+  status           String    @default("open")
+  isCurrent        Boolean   @default(false)
+  closeRequestedAt DateTime?
+  closeRequestedBy Int?
+  closeApprovedAt  DateTime?
+  closeApprovedBy  Int?
+  closeComment     String?   @db.Text
+  closedAt         DateTime?
+  closedBy         Int?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  journalEntries JournalEntry[]
+
+  @@index([companyId])
+  @@index([isCurrent])
+  @@map("fiscal_years")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Period Locks
+// ============================================================================
+
+model PeriodLock {
+  id           Int       @id @default(autoincrement())
+  companyId    Int
+  year         Int
+  period       Int
+  isLocked     Boolean   @default(true)
+  lockedAt     DateTime  @default(now())
+  lockedBy     Int
+  lockedReason String?   @db.Text
+  unlockedAt   DateTime?
+  unlockedBy   Int?
+  unlockReason String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, year, period])
+  @@index([companyId, isLocked])
+  @@map("period_locks")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Banks & Reconciliation
+// ============================================================================
+
+model Bank {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int
+  branchId              Int?
+  name                  String
+  accountName           String?
+  accountNumber         String
+  bankName              String
+  branchCode            String?
+  swiftCode             String?
+  iban                  String?
+  routingNumber         String?
+  contactPerson         String?
+  contactPhone          String?
+  contactEmail          String?
+  glAccountId           Int?
+  currencyCode          String    @default("NGN") @db.VarChar(3)
+  openingBalance        Decimal   @default(0) @db.Decimal(15, 2)
+  openingBalanceDate    DateTime?
+  currentBalance        Decimal   @default(0) @db.Decimal(15, 2)
+  isActive              Boolean   @default(true)
+  isDefault             Boolean   @default(false)
+  lastReconciledDate    DateTime?
+  lastReconciledBalance Decimal?  @db.Decimal(15, 2)
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch    Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  glAccount IfrsAccount? @relation(fields: [glAccountId], references: [id], onDelete: SetNull)
+
+  reconciliations BankReconciliation[]
+  transfers       BankTransfer[]       @relation("TransferFromBank")
+  transfersTo     BankTransfer[]       @relation("TransferToBank")
+
+  @@index([companyId])
+  @@index([isActive])
+  @@map("banks")
+}
+
+model BankReconciliation {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int
+  branchId              Int?
+  bankId                Int
+  reconciliationDate    DateTime  @db.Date
+  statementDate         DateTime  @db.Date
+  statementBalance      Decimal   @db.Decimal(15, 2)
+  bookBalance           Decimal   @db.Decimal(15, 2)
+  reconciledBalance     Decimal?  @db.Decimal(15, 2)
+  difference            Decimal?  @db.Decimal(15, 2)
+  differenceExplanation String?   @db.Text
+  status                String    @default("draft")
+  notes                 String?   @db.Text
+  completedAt           DateTime?
+  completedBy           Int?
+  approvedAt            DateTime?
+  approvedBy            Int?
+  approvalComment       String?   @db.Text
+  lockedAt              DateTime?
+  lockedBy              Int?
+  createdBy             Int?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bank    Bank    @relation(fields: [bankId], references: [id], onDelete: Cascade)
+
+  items BankReconciliationItem[]
+
+  @@index([companyId])
+  @@index([bankId])
+  @@index([reconciliationDate])
+  @@map("bank_reconciliations")
+}
+
+model BankReconciliationItem {
+  id                   Int       @id @default(autoincrement())
+  bankReconciliationId Int
+  transactionType      String
+  referenceType        String?
+  referenceId          Int?
+  transactionDate      DateTime  @db.Date
+  description          String?
+  amount               Decimal   @db.Decimal(15, 2)
+  isCleared            Boolean   @default(false)
+  clearedAt            DateTime?
+  clearedBy            Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  bankReconciliation BankReconciliation @relation(fields: [bankReconciliationId], references: [id], onDelete: Cascade)
+
+  @@index([bankReconciliationId])
+  @@map("bank_reconciliation_items")
+}
+
+model BankTransfer {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int
+  fromBankId            Int
+  toBankId              Int
+  transferNumber        String
+  branchId              Int?
+  entityId              Int?
+  amount                Decimal   @db.Decimal(15, 2)
+  totalAmount           Decimal   @default(0) @db.Decimal(15, 2)
+  currencyId            Int?
+  exchangeRate          Decimal   @default(1) @db.Decimal(10, 6)
+  transferDate          DateTime  @db.Date
+  reference             String?
+  description           String?   @db.Text
+  status                String    @default("draft")
+  journalEntryId        Int?
+  approvedBy            Int?
+  approvedAt            DateTime?
+  approvalNotes         String?   @db.Text
+  postedBy              Int?
+  postedAt              DateTime?
+  completedAt           DateTime?
+  createdBy             Int?
+  updatedBy             Int?
+  chargesAccountId      Int?
+  transferType          String    @default("local") @db.VarChar(20)
+  sourceCurrencyId      Int?
+  destinationCurrencyId Int?
+  destinationAmount     Decimal?  @db.Decimal(15, 2)
+  bankCharges           Decimal   @default(0) @db.Decimal(15, 2)
+  forexGainLoss         Decimal   @default(0) @db.Decimal(15, 2)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  company  Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromBank Bank    @relation("TransferFromBank", fields: [fromBankId], references: [id])
+  toBank   Bank    @relation("TransferToBank", fields: [toBankId], references: [id])
+
+  items BankTransferItem[]
+
+  @@unique([companyId, transferNumber])
+  @@index([transferDate])
+  @@index([companyId, status])
+  @@map("bank_transfers")
+}
+
+model BankTransferItem {
+  id                   Int      @id @default(autoincrement())
+  bankTransferId       Int
+  lineNumber           Int      @default(1)
+  transferType         String
+  sourceAccountId      Int
+  sourceBankId         Int?
+  destinationBankId    Int
+  destinationAccountId Int
+  amount               Decimal  @db.Decimal(15, 2)
+  description          String?  @db.Text
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Relations
+  bankTransfer       BankTransfer @relation(fields: [bankTransferId], references: [id], onDelete: Cascade)
+  sourceAccount      IfrsAccount  @relation("TransferItemSourceAccount", fields: [sourceAccountId], references: [id])
+  destinationAccount IfrsAccount  @relation("TransferItemDestAccount", fields: [destinationAccountId], references: [id])
+
+  @@index([bankTransferId])
+  @@map("bank_transfer_items")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Withholding Tax
+// ============================================================================
+
+model WithholdingTax {
+  id                  Int       @id @default(autoincrement())
+  companyId           Int
+  name                String
+  code                String
+  rate                Decimal   @db.Decimal(5, 2)
+  accountId           Int?
+  receivableAccountId Int?
+  category            String?
+  description         String?   @db.Text
+  isActive            Boolean   @default(true)
+  effectiveFrom       DateTime? @db.Date
+  effectiveTo         DateTime? @db.Date
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Expense
+  expenseRequestLines ExpenseRequestLine[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@index([companyId, category])
+  @@map("withholding_taxes")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Expense Requests
+// ============================================================================
+
+model ExpenseRequest {
+  id                       Int       @id @default(autoincrement())
+  companyId                Int
+  branchId                 Int?
+  departmentId             Int?
+  requestNumber            String
+  requesterId              Int?
+  requesterName            String?   @db.VarChar(255)
+  requestDate              DateTime  @db.Date
+  description              String    @db.Text
+  beneficiaryName          String?
+  beneficiaryAccountNumber String?
+  beneficiaryBankName      String?
+  beneficiaryBankId        Int?
+  memoFrom                 String?
+  memoTo                   String?
+  subject                  String?
+  background               String?   @db.Text
+  justification            String?   @db.Text
+  prayer                   String?   @db.Text
+  totalAmount              Decimal   @db.Decimal(15, 2)
+  whtAmount                Decimal   @default(0) @db.Decimal(15, 2)
+  netAmount                Decimal   @default(0) @db.Decimal(15, 2)
+  currency                 String    @default("NGN") @db.VarChar(3)
+  approvedAmount           Decimal?  @db.Decimal(15, 2)
+  expenseAccountId         Int?
+  bankAccountId            Int?
+  whtApplicable            Boolean   @default(false)
+  whtRate                  Decimal?  @db.Decimal(5, 2)
+  budgetNotes              String?   @db.Text
+  budgetExceeded           Boolean   @default(false)
+  status                   String    @default("draft")
+  submittedAt              DateTime?
+  approvedAt               DateTime?
+  approvedBy               Int?
+  paymentVoucherNumber     String?
+  transferMemoNumber       String?
+  paymentDate              DateTime? @db.Date
+  paymentReference         String?
+  journalEntryId           Int?
+  rejectionReason          String?   @db.Text
+  paidAt                   DateTime?
+  paidBy                   Int?
+  notes                    String?   @db.Text
+  batchRef                 String?
+  isHistoricalLoad         Boolean   @default(false)
+  createdBy                Int?
+  updatedBy                Int?
+  deletedAt                DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  lines       ExpenseRequestLine[]
+  attachments ExpenseRequestAttachment[]
+
+  @@unique([companyId, requestNumber])
+  @@index([status])
+  @@index([companyId, status])
+  @@index([batchRef])
+  @@map("expense_requests")
+}
+
+model ExpenseRequestAttachment {
+  id               Int      @id @default(autoincrement())
+  expenseRequestId Int
+  filename         String
+  originalName     String
+  path             String
+  url              String
+  mimeType         String?
+  size             Int?
+  uploadedBy       Int?
+  createdAt        DateTime @default(now())
+
+  expenseRequest ExpenseRequest @relation(fields: [expenseRequestId], references: [id], onDelete: Cascade)
+
+  @@index([expenseRequestId])
+  @@map("expense_request_attachments")
+}
+
+model ExpenseRequestLine {
+  id               Int      @id @default(autoincrement())
+  expenseRequestId Int
+  description      String
+  accountId        Int?
+  expenseAccountId Int?
+  whtId            Int?
+  amount           Decimal  @db.Decimal(15, 2)
+  quantity         Decimal  @default(1) @db.Decimal(10, 2)
+  unitPrice        Decimal  @db.Decimal(15, 2)
+  whtApplicable    Boolean  @default(false)
+  whtRate          Decimal? @db.Decimal(5, 2)
+  whtAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  netAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  remarks          String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  expenseRequest ExpenseRequest  @relation(fields: [expenseRequestId], references: [id], onDelete: Cascade)
+  wht            WithholdingTax? @relation(fields: [whtId], references: [id])
+
+  @@index([expenseRequestId])
+  @@map("expense_request_lines")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Payment Methods
+// ============================================================================
+
+model PaymentMethod {
+  id                    Int      @id @default(autoincrement())
+  companyId             Int?
+  name                  String
+  code                  String   @unique
+  description           String?
+  type                  String
+  isCash                Boolean  @default(false)
+  bankId                Int?
+  glAccountId           Int?
+  accountId             Int?
+  feeAccountId          Int?
+  cardType              String?
+  mobileProvider        String?
+  mobileNumber          String?
+  transactionFeePercent Decimal  @default(0) @db.Decimal(5, 2)
+  transactionFeeFixed   Decimal  @default(0) @db.Decimal(15, 2)
+  isActive              Boolean  @default(true)
+  requiresRef           Boolean  @default(false)
+  requiresApproval      Boolean  @default(false)
+  approvalThreshold     Decimal? @db.Decimal(15, 2)
+  allowPartialPayment   Boolean  @default(true)
+  isDefault             Boolean  @default(false)
+  sortOrder             Int      @default(0)
+  icon                  String?
+  color                 String?
+  createdBy             Int?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([type])
+  @@index([isActive])
+  @@map("payment_methods")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Petty Cash
+// ============================================================================
+
+model PettyCashSettings {
+  id                           Int      @id @default(autoincrement())
+  companyId                    Int      @unique
+  disbursementPrefix           String   @default("PCD")
+  disbursementNextNumber       Int      @default(1)
+  replenishmentPrefix          String   @default("PCR")
+  replenishmentNextNumber      Int      @default(1)
+  requireDisbursementApproval  Boolean  @default(true)
+  requireReplenishmentApproval Boolean  @default(true)
+  maxDisbursementAmount        Decimal? @db.Decimal(15, 2)
+  requireReceiptAttachment     Boolean  @default(false)
+  defaultExpenseAccountId      Int?
+  autoPostToGL                 Boolean  @default(false)
+  createdBy                    Int?
+  updatedBy                    Int?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("petty_cash_settings")
+}
+
+model PettyCashCategory {
+  id               Int       @id @default(autoincrement())
+  companyId        Int
+  name             String
+  code             String
+  description      String?   @db.Text
+  expenseAccountId Int?
+  maxAmount        Decimal?  @db.Decimal(15, 2)
+  requiresReceipt  Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  createdBy        Int?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  disbursementItems PettyCashDisbursementItem[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("petty_cash_categories")
+}
+
+model PettyCashFund {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int
+  branchId              Int?
+  name                  String
+  code                  String
+  description           String?   @db.Text
+  custodianId           Int?
+  custodianName         String?
+  glAccountId           Int?
+  currencyCode          String    @default("NGN") @db.VarChar(3)
+  fundLimit             Decimal   @db.Decimal(15, 2)
+  currentBalance        Decimal   @default(0) @db.Decimal(15, 2)
+  openingBalance        Decimal   @default(0) @db.Decimal(15, 2)
+  minimumBalance        Decimal   @default(0) @db.Decimal(15, 2)
+  status                String    @default("active")
+  lastReconciledAt      DateTime?
+  lastReconciledBalance Decimal?  @db.Decimal(15, 2)
+  isActive              Boolean   @default(true)
+  createdBy             Int?
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  disbursements  PettyCashDisbursement[]
+  replenishments PettyCashReplenishment[]
+  company        Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("petty_cash_funds")
+}
+
+model PettyCashDisbursement {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  branchId           Int?
+  fundId             Int
+  disbursementNumber String    @unique
+  disbursementDate   DateTime  @db.Date
+  payeeName          String
+  description        String?   @db.Text
+  totalAmount        Decimal   @db.Decimal(15, 2)
+  taxAmount          Decimal   @default(0) @db.Decimal(15, 2)
+  netAmount          Decimal   @default(0) @db.Decimal(15, 2)
+  receiptNumber      String?
+  receiptAttachment  String?
+  status             String    @default("draft")
+  approvalStatus     String    @default("pending")
+  journalEntryId     Int?
+  postedAt           DateTime?
+  postedBy           Int?
+  approvedAt         DateTime?
+  approvedBy         Int?
+  approvalNotes      String?   @db.Text
+  rejectionReason    String?   @db.Text
+  notes              String?   @db.Text
+  createdBy          Int?
+  updatedBy          Int?
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  fund  PettyCashFund              @relation(fields: [fundId], references: [id], onDelete: Restrict)
+  items PettyCashDisbursementItem[]
+
+  @@index([companyId, status])
+  @@index([fundId, disbursementDate])
+  @@map("petty_cash_disbursements")
+}
+
+model PettyCashDisbursementItem {
+  id               Int      @id @default(autoincrement())
+  disbursementId   Int
+  categoryId       Int?
+  expenseAccountId Int?
+  description      String
+  quantity         Decimal  @default(1) @db.Decimal(10, 2)
+  unitPrice        Decimal  @db.Decimal(15, 2)
+  lineAmount       Decimal  @db.Decimal(15, 2)
+  taxAmount        Decimal  @default(0) @db.Decimal(15, 2)
+  totalAmount      Decimal  @db.Decimal(15, 2)
+  costCenterId     Int?
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  disbursement PettyCashDisbursement @relation(fields: [disbursementId], references: [id], onDelete: Cascade)
+  category     PettyCashCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([disbursementId])
+  @@map("petty_cash_disbursement_items")
+}
+
+model PettyCashReplenishment {
+  id                  Int       @id @default(autoincrement())
+  companyId           Int
+  branchId            Int?
+  fundId              Int
+  replenishmentNumber String    @unique
+  requestDate         DateTime  @db.Date
+  amount              Decimal   @db.Decimal(15, 2)
+  description         String?   @db.Text
+  sourceBankId        Int?
+  sourceAccountId     Int?
+  referenceNumber     String?
+  journalEntryId      Int?
+  status              String    @default("draft")
+  requestedBy         Int?
+  requestedAt         DateTime  @default(now())
+  approvedBy          Int?
+  approvedAt          DateTime?
+  approvalNotes       String?   @db.Text
+  rejectionReason     String?   @db.Text
+  processedBy         Int?
+  processedAt         DateTime?
+  postedAt            DateTime?
+  postedBy            Int?
+  notes               String?   @db.Text
+  createdBy           Int?
+  updatedBy           Int?
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  fund PettyCashFund @relation(fields: [fundId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([fundId, requestDate])
+  @@map("petty_cash_replenishments")
+}
+
+// ============================================================================
+// ACCOUNTS MODULE - Unposted Accounting Entries
+// ============================================================================
+
+model UnpostedAccountingEntry {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  branchId           Int?
+  sourceType         String
+  sourceId           Int
+  reference          String
+  transactionDate    DateTime  @db.Date
+  entryType          String
+  failureReason      String
+  errorMessage       String?   @db.Text
+  transactionData    Json?
+  missingAccountType String?
+  transactionAmount  Decimal   @db.Decimal(15, 2)
+  currencyCode       String    @default("NGN") @db.VarChar(3)
+  status             String    @default("pending")
+  resolvedAt         DateTime?
+  resolvedBy         Int?
+  resolutionNotes    String?   @db.Text
+  journalEntryId     Int?
+  createdBy          Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([sourceType, sourceId])
+  @@index([failureReason])
+  @@map("unposted_accounting_entries")
+}
+
+// ============================================================================
+// ASSETS MODULE - Asset Classes, Assets, Depreciation, Transfers, Maintenance, Disposals, Settings
+// ============================================================================
+
+enum DepreciationMethod {
+  STRAIGHT_LINE
+  DECLINING_BALANCE
+  DOUBLE_DECLINING
+  SUM_OF_YEARS
+  SUM_OF_YEARS_DIGITS
+  UNITS_OF_PRODUCTION
+  NO_DEPRECIATION
+}
+
+model AssetClass {
+  id                               Int                @id @default(autoincrement())
+  companyId                        Int
+  code                             String             @unique
+  name                             String
+  description                      String?            @db.Text
+  parentId                         Int?
+  depreciationMethod               DepreciationMethod @default(STRAIGHT_LINE)
+  usefulLifeYears                  Int                @default(5)
+  usefulLifeMonths                 Int                @default(0)
+  residualValuePercent             Decimal            @default(0) @db.Decimal(5, 2)
+  assetAccountId                   Int?
+  accumulatedDepreciationAccountId Int?
+  depreciationExpenseAccountId     Int?
+  gainLossAccountId                Int?
+  maintenanceAccountId             Int?
+  isActive                         Boolean            @default(true)
+  createdBy                        Int?
+  deletedAt                        DateTime?
+  createdAt                        DateTime           @default(now())
+  updatedAt                        DateTime           @updatedAt
+
+  // Relations
+  parent   AssetClass?  @relation("AssetClassHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children AssetClass[] @relation("AssetClassHierarchy")
+  assets   Asset[]
+  company  Company      @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, isActive])
+  @@map("ast_asset_classes")
+}
+
+model Asset {
+  id                      Int                @id @default(autoincrement())
+  companyId               Int
+  branchId                Int?
+  assetClassId            Int
+  assetCode               String             @unique
+  name                    String
+  description             String?            @db.Text
+  serialNumber            String?
+  barcode                 String?
+  make                    String?
+  model                   String?
+  manufacturer            String?
+  location                String?
+  department              String?
+  custodianUserId         Int?
+  acquisitionDate         DateTime?          @db.Date
+  acquisitionCost         Decimal            @db.Decimal(15, 2)
+  acquisitionMethod       String?
+  supplierId              Int?
+  purchaseOrderNumber     String?
+  invoiceNumber           String?
+  grnId                   Int?
+  grnLineId               Int?
+  depreciationMethod      DepreciationMethod
+  usefulLifeYears         Int
+  residualValue           Decimal            @default(0) @db.Decimal(15, 2)
+  residualValuePercent    Decimal            @default(0) @db.Decimal(5, 2)
+  depreciationStartDate   DateTime?          @db.Date
+  bookValue               Decimal            @default(0) @db.Decimal(15, 2)
+  accumulatedDepreciation Decimal            @default(0) @db.Decimal(15, 2)
+  impairmentLoss          Decimal            @default(0) @db.Decimal(15, 2)
+  lastDepreciationDate    DateTime?          @db.Date
+  status                  String             @default("active")
+  condition               String             @default("new")
+  warrantyStartDate       DateTime?          @db.Date
+  warrantyExpiryDate      DateTime?          @db.Date
+  lastMaintenanceDate     DateTime?          @db.Date
+  nextMaintenanceDate     DateTime?          @db.Date
+  disposalDate            DateTime?          @db.Date
+  disposalValue           Decimal?           @db.Decimal(15, 2)
+  disposalMethod          String?
+  disposalNotes           String?            @db.Text
+  notes                   String?            @db.Text
+  customFields            Json?
+  imagePath               String?
+  createdById             Int?
+  deletedAt               DateTime?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  // Relations
+  assetClass          AssetClass          @relation(fields: [assetClassId], references: [id], onDelete: Cascade)
+  depreciationRecords AssetDepreciation[]
+  transfers           AssetTransfer[]
+  maintenanceRecords  AssetMaintenance[]
+  disposals           AssetDisposal[]
+  company             Company             @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status])
+  @@index([assetClassId, status])
+  @@index([branchId, status])
+  @@map("ast_assets")
+}
+
+model AssetDepreciation {
+  id                      Int       @id @default(autoincrement())
+  companyId               Int
+  assetId                 Int
+  depreciationDate        DateTime  @db.Date
+  fiscalYear              Int
+  fiscalPeriod            Int
+  periodName              String?
+  depreciationMethod      String
+  openingBookValue        Decimal   @db.Decimal(15, 2)
+  depreciationAmount      Decimal   @db.Decimal(15, 2)
+  closingBookValue        Decimal   @db.Decimal(15, 2)
+  accumulatedDepreciation Decimal   @db.Decimal(15, 2)
+  annualDepreciationRate  Decimal?  @db.Decimal(8, 4)
+  usefulLifeYears         Int?
+  residualValue           Decimal?  @db.Decimal(15, 2)
+  monthsDepreciated       Int       @default(1)
+  isPosted                Boolean   @default(false)
+  transactionId           Int?
+  postedAt                DateTime?
+  postedByUserId          Int?
+  batchNumber             String?
+  isAdjustment            Boolean   @default(false)
+  adjustmentReason        String?   @db.Text
+  status                  String    @default("draft")
+  createdById             Int?
+  deletedAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, depreciationDate])
+  @@index([isPosted, depreciationDate])
+  @@index([companyId, fiscalYear, fiscalPeriod])
+  @@map("ast_depreciations")
+}
+
+model AssetTransfer {
+  id                  Int       @id @default(autoincrement())
+  companyId           Int
+  assetId             Int
+  transferNumber      String    @unique
+  transferDate        DateTime  @db.Date
+  effectiveDate       DateTime? @db.Date
+  transferType        String
+  fromLocation        String?
+  fromDepartment      String?
+  fromCustodianUserId Int?
+  fromBranchId        Int?
+  toLocation          String?
+  toDepartment        String?
+  toCustodianUserId   Int?
+  toBranchId          Int?
+  conditionAtTransfer String?
+  conditionNotes      String?   @db.Text
+  status              String    @default("draft")
+  requestedByUserId   Int?
+  approvedByUserId    Int?
+  approvedAt          DateTime?
+  dispatchedAt        DateTime?
+  receivedByUserId    Int?
+  receivedAt          DateTime?
+  reason              String?   @db.Text
+  notes               String?   @db.Text
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, transferDate])
+  @@index([companyId, status])
+  @@map("ast_transfers")
+}
+
+model AssetMaintenance {
+  id                     Int       @id @default(autoincrement())
+  companyId              Int
+  assetId                Int
+  maintenanceNumber      String    @unique
+  title                  String?
+  description            String?   @db.Text
+  maintenanceType        String    @default("preventive")
+  priority               String    @default("medium")
+  scheduledDate          DateTime? @db.Date
+  dueDate                DateTime? @db.Date
+  startedDate            DateTime? @db.Date
+  completedDate          DateTime? @db.Date
+  estimatedDurationHours Decimal?  @db.Decimal(8, 2)
+  actualDurationHours    Decimal?  @db.Decimal(8, 2)
+  isRecurring            Boolean   @default(false)
+  recurrenceFrequency    String?
+  recurrenceInterval     Int?
+  nextScheduledDate      DateTime? @db.Date
+  vendorName             String?
+  vendorContact          String?
+  technicianName         String?
+  assignedToUserId       Int?
+  estimatedCost          Decimal?  @db.Decimal(15, 2)
+  actualCost             Decimal?  @db.Decimal(15, 2)
+  laborCost              Decimal?  @db.Decimal(12, 2)
+  partsCost              Decimal?  @db.Decimal(12, 2)
+  costBreakdown          String?   @db.Text
+  partsUsed              String?   @db.Text
+  materialsUsed          String?   @db.Text
+  conditionBefore        String?
+  conditionAfter         String?
+  meterReadingBefore     Decimal?  @db.Decimal(15, 2)
+  meterReadingAfter      Decimal?  @db.Decimal(15, 2)
+  meterUnit              String?
+  workPerformed          String?   @db.Text
+  findings               String?   @db.Text
+  recommendations        String?   @db.Text
+  notes                  String?   @db.Text
+  status                 String    @default("scheduled")
+  requiresFollowUp       Boolean   @default(false)
+  followUpNotes          String?   @db.Text
+  requestedByUserId      Int?
+  approvedByUserId       Int?
+  approvedAt             DateTime?
+  completedByUserId      Int?
+  isPosted               Boolean   @default(false)
+  transactionId          Int?
+  postedAt               DateTime?
+  deletedAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, maintenanceType])
+  @@index([companyId, status])
+  @@map("ast_maintenances")
+}
+
+model AssetDisposal {
+  id                      Int       @id @default(autoincrement())
+  companyId               Int
+  assetId                 Int
+  disposalNumber          String    @unique
+  disposalDate            DateTime  @db.Date
+  disposalType            String
+  bookValueAtDisposal     Decimal   @db.Decimal(15, 2)
+  accumulatedDepreciation Decimal   @db.Decimal(15, 2)
+  disposalProceeds        Decimal   @default(0) @db.Decimal(15, 2)
+  disposalCosts           Decimal   @default(0) @db.Decimal(12, 2)
+  gainLoss                Decimal   @default(0) @db.Decimal(15, 2)
+  buyerEntityId           Int?
+  buyerName               String?
+  buyerContact            String?
+  buyerAddress            String?   @db.Text
+  saleAgreementNumber     String?
+  invoiceNumber           String?
+  paymentReceivedDate     DateTime? @db.Date
+  paymentMethod           String?
+  status                  String    @default("draft")
+  requestedByUserId       Int?
+  approvedByUserId        Int?
+  approvedAt              DateTime?
+  completedAt             DateTime?
+  isPosted                Boolean   @default(false)
+  transactionId           Int?
+  postedAt                DateTime?
+  reason                  String?   @db.Text
+  notes                   String?   @db.Text
+  deletedAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, disposalDate])
+  @@index([companyId, status])
+  @@map("ast_disposals")
+}
+
+model AssetSettings {
+  id                          Int      @id @default(autoincrement())
+  companyId                   Int      @unique
+  defaultDepreciationMethod   String   @default("STRAIGHT_LINE")
+  autoCalculateDepreciation   Boolean  @default(true)
+  depreciationFrequency       String   @default("monthly")
+  prorationFirstYear          Boolean  @default(true)
+  prorationDisposalYear       Boolean  @default(true)
+  midMonthConvention          Boolean  @default(false)
+  requireAssetApproval        Boolean  @default(false)
+  requireDisposalApproval     Boolean  @default(true)
+  requireTransferApproval     Boolean  @default(true)
+  requireMaintenanceApproval  Boolean  @default(false)
+  autoGenerateCode            Boolean  @default(true)
+  codePrefix                  String   @default("AST")
+  codePadding                 Int      @default(6)
+  allowRevaluation            Boolean  @default(false)
+  requireRevaluationApproval  Boolean  @default(true)
+  trackImpairment             Boolean  @default(true)
+  calculateFairValue          Boolean  @default(false)
+  trackMaintenanceCosts       Boolean  @default(true)
+  maintenanceReminderDays     Int      @default(7)
+  allowMaintenanceScheduling  Boolean  @default(true)
+  capitalizationThreshold     Decimal  @default(5000) @db.Decimal(15, 2)
+  allowInterCompanyTransfer   Boolean  @default(false)
+  allowInterBranchTransfer    Boolean  @default(true)
+  requirePhysicalVerification Boolean  @default(true)
+  notifyOnDepreciation        Boolean  @default(false)
+  notifyOnMaintenanceDue      Boolean  @default(true)
+  notifyOnWarrantyExpiry      Boolean  @default(true)
+  notifyOnDisposal            Boolean  @default(true)
+  warrantyExpiryReminderDays  Int      @default(30)
+  enableBarcode               Boolean  @default(true)
+  enableQrCode                Boolean  @default(false)
+  barcodeFormat               String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("ast_settings")
+}

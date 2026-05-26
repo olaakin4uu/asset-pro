@@ -474,86 +474,35 @@ export class TenantDatabaseService {
     // Seed Default Currencies (USD, EUR, GBP, etc.)
     await this.seedCurrencies(client, entityId);
 
-    // Seed Units of Measure & Conversions
-    await this.seedUnitsOfMeasure(client, companyId);
-
-    // Seed Default Warehouse
-    await this.seedWarehouse(client, companyId, branchId);
-
-    // Seed Walk-in Customer for POS
-    await this.seedWalkInCustomer(client, companyId, branchId);
-
-    // Seed Loan Types
-    await this.seedLoanTypes(client, companyId);
-
     // Seed Approval Flows
     await this.seedApprovalFlows(client, companyId);
-
-    // Seed Fleet Vehicle Service Types
-    await this.seedFleetVehicleServiceTypes(client, companyId);
-
-    // Seed Default Fund Products (D'Namaz Capital term-sheet funds)
-    await this.seedFundProducts(client, companyId);
-    await this.seedCreditFacilityTypes(client, companyId);
-
-    // Seed Document Management System default categories
-    await this.seedDocumentCategories(client, companyId);
   }
 
   /**
-   * Create the admin user with Super Admin role (Unified Login Design)
-   * Creates: Employee -> User linked via employeeId
-   * Employee.isUser = true (counts against plan user limit)
+   * Create the admin user with Super Admin role.
+   * AssetPro has no employees table — users are created directly.
    */
   private async createAdminUser(
     client: PoolClient,
     adminData: TenantAdminData,
     companyId: number,
   ): Promise<number> {
-    // Step 1: Create Employee record first
-    const nameParts = adminData.name.split(' ');
-    const firstName = nameParts[0] || 'Admin';
-    const lastName = nameParts.slice(1).join(' ') || 'User';
-
-    const employeeResult = await client.query(
-      `INSERT INTO employees (
-        "companyId", "employeeCode", "firstName", "lastName",
-        "personalEmail", "phone", "employmentStatus", "employmentType",
-        "isActive", "isUser", "createdAt", "updatedAt"
-      )
-       VALUES ($1, 'EMP001', $2, $3, $4, $5, 'ACTIVE', 'FULL_TIME', true, true, NOW(), NOW())
-       RETURNING id`,
-      [companyId, firstName, lastName, adminData.email, adminData.phone || null],
-    );
-    const employeeId = employeeResult.rows[0].id;
-
-    // Step 2: Create User record linked to Employee via employeeId
     const userResult = await client.query(
       `INSERT INTO users (
-        email, name, password, "companyId", "userType", "employeeId",
+        email, name, password, "companyId", "userType",
         "createdAt", "updatedAt"
       )
-       VALUES ($1, $2, $3, $4, 'EMPLOYEE', $5, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, 'ADMIN', NOW(), NOW())
        RETURNING id`,
-      [adminData.email, adminData.name, adminData.passwordHash, companyId, employeeId],
+      [adminData.email, adminData.name, adminData.passwordHash, companyId],
     );
     const userId = userResult.rows[0].id;
 
-    // Step 3: Update Employee with legacy userId reference (for backwards compatibility)
-    await client.query(
-      `UPDATE employees SET "userId" = $1 WHERE id = $2`,
-      [userId, employeeId],
-    );
-
-    // Step 4: Assign Super Admin role to user
     const roleResult = await client.query(
       `SELECT id FROM roles WHERE name = 'Super Admin' AND "guardName" = 'web' LIMIT 1`,
     );
-
     if (roleResult.rows.length > 0) {
       const roleId = roleResult.rows[0].id;
-
-      // Assign Super Admin role to user (using new user_roles table)
       await client.query(
         `INSERT INTO user_roles ("userId", "roleId", "createdAt", "updatedAt")
          VALUES ($1, $2, NOW(), NOW())
@@ -562,8 +511,7 @@ export class TenantDatabaseService {
       );
     }
 
-    this.logger.log(`Admin user created: ${adminData.email} (Employee ID: ${employeeId}, User ID: ${userId})`);
-
+    this.logger.log(`Admin user created: ${adminData.email} (User ID: ${userId})`);
     return userId;
   }
 
@@ -597,14 +545,6 @@ export class TenantDatabaseService {
       { name: 'edit companies', module: 'Core' },
       { name: 'delete companies', module: 'Core' },
       { name: 'manage companies', module: 'Core' },
-      { name: 'view customers', module: 'Core' },
-      { name: 'create customers', module: 'Core' },
-      { name: 'edit customers', module: 'Core' },
-      { name: 'delete customers', module: 'Core' },
-      { name: 'view suppliers', module: 'Core' },
-      { name: 'create suppliers', module: 'Core' },
-      { name: 'edit suppliers', module: 'Core' },
-      { name: 'delete suppliers', module: 'Core' },
       { name: 'view roles', module: 'Core' },
       { name: 'create roles', module: 'Core' },
       { name: 'edit roles', module: 'Core' },
@@ -615,21 +555,6 @@ export class TenantDatabaseService {
       { name: 'edit users', module: 'Core' },
       { name: 'delete users', module: 'Core' },
       { name: 'manage users', module: 'Core' },
-      { name: 'import accounts', module: 'Core' },
-      { name: 'import-overwrite accounts', module: 'Core' },
-      { name: 'import users', module: 'Core' },
-      { name: 'import-overwrite users', module: 'Core' },
-      // â”€â”€ Help â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Help module', module: 'Help' },
-      { name: 'view help-articles', module: 'Help' },
-      { name: 'create help-articles', module: 'Help' },
-      { name: 'edit help-articles', module: 'Help' },
-      { name: 'delete help-articles', module: 'Help' },
-      { name: 'view help-categories', module: 'Help' },
-      { name: 'create help-categories', module: 'Help' },
-      { name: 'edit help-categories', module: 'Help' },
-      { name: 'delete help-categories', module: 'Help' },
-      // â”€â”€ Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       { name: 'access Accounts module', module: 'Accounts' },
       { name: 'view chart-of-accounts', module: 'Accounts' },
       { name: 'create chart-of-accounts', module: 'Accounts' },
@@ -683,371 +608,6 @@ export class TenantDatabaseService {
       { name: 'approve expense-requests', module: 'Accounts' },
       { name: 'delete expense-requests', module: 'Accounts' },
       { name: 'import-overwrite accounts', module: 'Accounts' },
-      // â”€â”€ Budget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Budget module', module: 'Budget' },
-      { name: 'view budget-settings', module: 'Budget' },
-      { name: 'create budget-settings', module: 'Budget' },
-      { name: 'edit budget-settings', module: 'Budget' },
-      { name: 'delete budget-settings', module: 'Budget' },
-      { name: 'view budgets', module: 'Budget' },
-      { name: 'create budgets', module: 'Budget' },
-      { name: 'edit budgets', module: 'Budget' },
-      { name: 'delete budgets', module: 'Budget' },
-      { name: 'view budget-lines', module: 'Budget' },
-      { name: 'create budget-lines', module: 'Budget' },
-      { name: 'edit budget-lines', module: 'Budget' },
-      { name: 'delete budget-lines', module: 'Budget' },
-      { name: 'view budget-period-allocations', module: 'Budget' },
-      { name: 'create budget-period-allocations', module: 'Budget' },
-      { name: 'edit budget-period-allocations', module: 'Budget' },
-      { name: 'delete budget-period-allocations', module: 'Budget' },
-      { name: 'view budget-transactions', module: 'Budget' },
-      { name: 'create budget-transactions', module: 'Budget' },
-      { name: 'edit budget-transactions', module: 'Budget' },
-      { name: 'delete budget-transactions', module: 'Budget' },
-      { name: 'view budget-transfers', module: 'Budget' },
-      { name: 'create budget-transfers', module: 'Budget' },
-      { name: 'edit budget-transfers', module: 'Budget' },
-      { name: 'delete budget-transfers', module: 'Budget' },
-      { name: 'view budget-overrides', module: 'Budget' },
-      { name: 'create budget-overrides', module: 'Budget' },
-      { name: 'edit budget-overrides', module: 'Budget' },
-      { name: 'delete budget-overrides', module: 'Budget' },
-      { name: 'view budget-control-exceptions', module: 'Budget' },
-      { name: 'create budget-control-exceptions', module: 'Budget' },
-      { name: 'edit budget-control-exceptions', module: 'Budget' },
-      { name: 'delete budget-control-exceptions', module: 'Budget' },
-      // â”€â”€ Payables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Payables module', module: 'Payables' },
-      { name: 'view payments', module: 'Payables' },
-      { name: 'create payments', module: 'Payables' },
-      { name: 'edit payments', module: 'Payables' },
-      { name: 'delete payments', module: 'Payables' },
-      { name: 'approve payments', module: 'Payables' },
-      { name: 'void payments', module: 'Payables' },
-      { name: 'post payments', module: 'Payables' },
-      { name: 'view payment-allocations', module: 'Payables' },
-      { name: 'create payment-allocations', module: 'Payables' },
-      { name: 'edit payment-allocations', module: 'Payables' },
-      { name: 'delete payment-allocations', module: 'Payables' },
-      { name: 'view payment-payment-methods', module: 'Payables' },
-      { name: 'create payment-payment-methods', module: 'Payables' },
-      { name: 'edit payment-payment-methods', module: 'Payables' },
-      { name: 'delete payment-payment-methods', module: 'Payables' },
-      // â”€â”€ Receivables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Receivables module', module: 'Receivables' },
-      { name: 'view receipts', module: 'Receivables' },
-      { name: 'create receipts', module: 'Receivables' },
-      { name: 'edit receipts', module: 'Receivables' },
-      { name: 'delete receipts', module: 'Receivables' },
-      { name: 'approve receipts', module: 'Receivables' },
-      { name: 'void receipts', module: 'Receivables' },
-      { name: 'post receipts', module: 'Receivables' },
-      { name: 'allocate receipts', module: 'Receivables' },
-      { name: 'view credit-notes', module: 'Receivables' },
-      { name: 'create credit-notes', module: 'Receivables' },
-      { name: 'edit credit-notes', module: 'Receivables' },
-      { name: 'delete credit-notes', module: 'Receivables' },
-      { name: 'approve credit-notes', module: 'Receivables' },
-      { name: 'void credit-notes', module: 'Receivables' },
-      { name: 'post credit-notes', module: 'Receivables' },
-      { name: 'view customer-deposits', module: 'Receivables' },
-      { name: 'create customer-deposits', module: 'Receivables' },
-      { name: 'edit customer-deposits', module: 'Receivables' },
-      { name: 'delete customer-deposits', module: 'Receivables' },
-      { name: 'approve customer-deposits', module: 'Receivables' },
-      { name: 'void customer-deposits', module: 'Receivables' },
-      { name: 'view receivables-reports', module: 'Receivables' },
-      // â”€â”€ Inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Inventory module', module: 'Inventory' },
-      { name: 'view unit-of-measures', module: 'Inventory' },
-      { name: 'create unit-of-measures', module: 'Inventory' },
-      { name: 'edit unit-of-measures', module: 'Inventory' },
-      { name: 'delete unit-of-measures', module: 'Inventory' },
-      { name: 'view unit-conversions', module: 'Inventory' },
-      { name: 'create unit-conversions', module: 'Inventory' },
-      { name: 'edit unit-conversions', module: 'Inventory' },
-      { name: 'delete unit-conversions', module: 'Inventory' },
-      { name: 'view item-categories', module: 'Inventory' },
-      { name: 'create item-categories', module: 'Inventory' },
-      { name: 'edit item-categories', module: 'Inventory' },
-      { name: 'delete item-categories', module: 'Inventory' },
-      { name: 'view brands', module: 'Inventory' },
-      { name: 'create brands', module: 'Inventory' },
-      { name: 'edit brands', module: 'Inventory' },
-      { name: 'delete brands', module: 'Inventory' },
-      { name: 'view warehouses', module: 'Inventory' },
-      { name: 'create warehouses', module: 'Inventory' },
-      { name: 'edit warehouses', module: 'Inventory' },
-      { name: 'delete warehouses', module: 'Inventory' },
-      { name: 'view items', module: 'Inventory' },
-      { name: 'create items', module: 'Inventory' },
-      { name: 'edit items', module: 'Inventory' },
-      { name: 'delete items', module: 'Inventory' },
-      { name: 'view item-beginning-balances', module: 'Inventory' },
-      { name: 'create item-beginning-balances', module: 'Inventory' },
-      { name: 'edit item-beginning-balances', module: 'Inventory' },
-      { name: 'delete item-beginning-balances', module: 'Inventory' },
-      { name: 'view stock-batches', module: 'Inventory' },
-      { name: 'create stock-batches', module: 'Inventory' },
-      { name: 'edit stock-batches', module: 'Inventory' },
-      { name: 'delete stock-batches', module: 'Inventory' },
-      { name: 'view item-barcodes', module: 'Inventory' },
-      { name: 'create item-barcodes', module: 'Inventory' },
-      { name: 'edit item-barcodes', module: 'Inventory' },
-      { name: 'delete item-barcodes', module: 'Inventory' },
-      { name: 'view stock-levels', module: 'Inventory' },
-      { name: 'create stock-levels', module: 'Inventory' },
-      { name: 'edit stock-levels', module: 'Inventory' },
-      { name: 'delete stock-levels', module: 'Inventory' },
-      { name: 'view stock-movements', module: 'Inventory' },
-      { name: 'create stock-movements', module: 'Inventory' },
-      { name: 'edit stock-movements', module: 'Inventory' },
-      { name: 'delete stock-movements', module: 'Inventory' },
-      { name: 'submit stock-movements', module: 'Inventory' },
-      { name: 'approve stock-movements', module: 'Inventory' },
-      { name: 'reject stock-movements', module: 'Inventory' },
-      { name: 'return stock-movements', module: 'Inventory' },
-      { name: 'view item-price-groups', module: 'Inventory' },
-      { name: 'create item-price-groups', module: 'Inventory' },
-      { name: 'edit item-price-groups', module: 'Inventory' },
-      { name: 'delete item-price-groups', module: 'Inventory' },
-      { name: 'view item-prices', module: 'Inventory' },
-      { name: 'create item-prices', module: 'Inventory' },
-      { name: 'edit item-prices', module: 'Inventory' },
-      { name: 'delete item-prices', module: 'Inventory' },
-      { name: 'import items', module: 'Inventory' },
-      { name: 'import-overwrite items', module: 'Inventory' },
-      { name: 'import categories', module: 'Inventory' },
-      { name: 'import-overwrite categories', module: 'Inventory' },
-      // â”€â”€ Sales â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Sales module', module: 'Sales' },
-      { name: 'view sales-orders', module: 'Sales' },
-      { name: 'create sales-orders', module: 'Sales' },
-      { name: 'edit sales-orders', module: 'Sales' },
-      { name: 'delete sales-orders', module: 'Sales' },
-      { name: 'view sales-order-lines', module: 'Sales' },
-      { name: 'create sales-order-lines', module: 'Sales' },
-      { name: 'edit sales-order-lines', module: 'Sales' },
-      { name: 'delete sales-order-lines', module: 'Sales' },
-      { name: 'view loading-orders', module: 'Sales' },
-      { name: 'create loading-orders', module: 'Sales' },
-      { name: 'edit loading-orders', module: 'Sales' },
-      { name: 'delete loading-orders', module: 'Sales' },
-      { name: 'view sales-deliveries', module: 'Sales' },
-      { name: 'create sales-deliveries', module: 'Sales' },
-      { name: 'edit sales-deliveries', module: 'Sales' },
-      { name: 'delete sales-deliveries', module: 'Sales' },
-      { name: 'view sales-invoices', module: 'Sales' },
-      { name: 'create sales-invoices', module: 'Sales' },
-      { name: 'edit sales-invoices', module: 'Sales' },
-      { name: 'delete sales-invoices', module: 'Sales' },
-      { name: 'import customers', module: 'Sales' },
-      { name: 'import-overwrite customers', module: 'Sales' },
-      // â”€â”€ Purchase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Purchase module', module: 'Purchase' },
-      { name: 'view purchase-settings', module: 'Purchase' },
-      { name: 'edit purchase-settings', module: 'Purchase' },
-      { name: 'view purchase-requisitions', module: 'Purchase' },
-      { name: 'create purchase-requisitions', module: 'Purchase' },
-      { name: 'edit purchase-requisitions', module: 'Purchase' },
-      { name: 'delete purchase-requisitions', module: 'Purchase' },
-      { name: 'submit purchase-requisitions', module: 'Purchase' },
-      { name: 'approve purchase-requisitions', module: 'Purchase' },
-      { name: 'reject purchase-requisitions', module: 'Purchase' },
-      { name: 'return purchase-requisitions', module: 'Purchase' },
-      { name: 'view request-for-quotations', module: 'Purchase' },
-      { name: 'create request-for-quotations', module: 'Purchase' },
-      { name: 'edit request-for-quotations', module: 'Purchase' },
-      { name: 'delete request-for-quotations', module: 'Purchase' },
-      { name: 'view supplier-quotations', module: 'Purchase' },
-      { name: 'create supplier-quotations', module: 'Purchase' },
-      { name: 'edit supplier-quotations', module: 'Purchase' },
-      { name: 'delete supplier-quotations', module: 'Purchase' },
-      { name: 'view purchase-orders', module: 'Purchase' },
-      { name: 'create purchase-orders', module: 'Purchase' },
-      { name: 'edit purchase-orders', module: 'Purchase' },
-      { name: 'delete purchase-orders', module: 'Purchase' },
-      { name: 'submit purchase-orders', module: 'Purchase' },
-      { name: 'approve purchase-orders', module: 'Purchase' },
-      { name: 'reject purchase-orders', module: 'Purchase' },
-      { name: 'return purchase-orders', module: 'Purchase' },
-      { name: 'view goods-received-notes', module: 'Purchase' },
-      { name: 'create goods-received-notes', module: 'Purchase' },
-      { name: 'edit goods-received-notes', module: 'Purchase' },
-      { name: 'delete goods-received-notes', module: 'Purchase' },
-      { name: 'view purchase-invoices', module: 'Purchase' },
-      { name: 'create purchase-invoices', module: 'Purchase' },
-      { name: 'edit purchase-invoices', module: 'Purchase' },
-      { name: 'delete purchase-invoices', module: 'Purchase' },
-      { name: 'submit purchase-invoices', module: 'Purchase' },
-      { name: 'approve purchase-invoices', module: 'Purchase' },
-      { name: 'reject purchase-invoices', module: 'Purchase' },
-      { name: 'view purchase-returns', module: 'Purchase' },
-      { name: 'create purchase-returns', module: 'Purchase' },
-      { name: 'edit purchase-returns', module: 'Purchase' },
-      { name: 'delete purchase-returns', module: 'Purchase' },
-      { name: 'approve purchase-returns', module: 'Purchase' },
-      { name: 'view purchase-inspections', module: 'Purchase' },
-      { name: 'create purchase-inspections', module: 'Purchase' },
-      { name: 'edit purchase-inspections', module: 'Purchase' },
-      { name: 'delete purchase-inspections', module: 'Purchase' },
-      { name: 'approve purchase-inspections', module: 'Purchase' },
-      { name: 'view service-inspections', module: 'Purchase' },
-      { name: 'create service-inspections', module: 'Purchase' },
-      { name: 'edit service-inspections', module: 'Purchase' },
-      { name: 'delete service-inspections', module: 'Purchase' },
-      { name: 'approve service-inspections', module: 'Purchase' },
-      { name: 'view service-orders', module: 'Purchase' },
-      { name: 'create service-orders', module: 'Purchase' },
-      { name: 'edit service-orders', module: 'Purchase' },
-      { name: 'delete service-orders', module: 'Purchase' },
-      { name: 'approve service-orders', module: 'Purchase' },
-      { name: 'view service-categories', module: 'Purchase' },
-      { name: 'create service-categories', module: 'Purchase' },
-      { name: 'edit service-categories', module: 'Purchase' },
-      { name: 'delete service-categories', module: 'Purchase' },
-      { name: 'view supplier-payments', module: 'Purchase' },
-      { name: 'create supplier-payments', module: 'Purchase' },
-      { name: 'edit supplier-payments', module: 'Purchase' },
-      { name: 'delete supplier-payments', module: 'Purchase' },
-      { name: 'approve supplier-payments', module: 'Purchase' },
-      { name: 'view supplier-performance', module: 'Purchase' },
-      { name: 'view certificates-of-completion', module: 'Purchase' },
-      { name: 'create certificates-of-completion', module: 'Purchase' },
-      { name: 'edit certificates-of-completion', module: 'Purchase' },
-      { name: 'delete certificates-of-completion', module: 'Purchase' },
-      { name: 'view po-matching', module: 'Purchase' },
-      { name: 'create po-matching', module: 'Purchase' },
-      { name: 'view purchase-reports', module: 'Purchase' },
-      { name: 'view import-orders', module: 'Purchase' },
-      { name: 'create import-orders', module: 'Purchase' },
-      { name: 'edit import-orders', module: 'Purchase' },
-      { name: 'delete import-orders', module: 'Purchase' },
-      { name: 'view import-shipments', module: 'Purchase' },
-      { name: 'create import-shipments', module: 'Purchase' },
-      { name: 'edit import-shipments', module: 'Purchase' },
-      { name: 'delete import-shipments', module: 'Purchase' },
-      { name: 'view import-documents', module: 'Purchase' },
-      { name: 'create import-documents', module: 'Purchase' },
-      { name: 'view import-clearances', module: 'Purchase' },
-      { name: 'create import-clearances', module: 'Purchase' },
-      { name: 'edit import-clearances', module: 'Purchase' },
-      { name: 'view import-duties', module: 'Purchase' },
-      { name: 'create import-duties', module: 'Purchase' },
-      { name: 'edit import-duties', module: 'Purchase' },
-      { name: 'view import-payments', module: 'Purchase' },
-      { name: 'create import-payments', module: 'Purchase' },
-      { name: 'edit import-payments', module: 'Purchase' },
-      { name: 'view import-landed-costs', module: 'Purchase' },
-      { name: 'create import-landed-costs', module: 'Purchase' },
-      { name: 'edit import-landed-costs', module: 'Purchase' },
-      { name: 'view import-lc', module: 'Purchase' },
-      { name: 'create import-lc', module: 'Purchase' },
-      { name: 'edit import-lc', module: 'Purchase' },
-      { name: 'view import-form-m', module: 'Purchase' },
-      { name: 'create import-form-m', module: 'Purchase' },
-      { name: 'edit import-form-m', module: 'Purchase' },
-      { name: 'view import-certifications', module: 'Purchase' },
-      { name: 'create import-certifications', module: 'Purchase' },
-      { name: 'view branch-inspection-officers', module: 'Purchase' },
-      { name: 'create branch-inspection-officers', module: 'Purchase' },
-      { name: 'edit branch-inspection-officers', module: 'Purchase' },
-      { name: 'delete branch-inspection-officers', module: 'Purchase' },
-      { name: 'import suppliers', module: 'Purchase' },
-      { name: 'import-overwrite suppliers', module: 'Purchase' },
-      // â”€â”€ HRPayroll â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access HRPayroll module', module: 'HRPayroll' },
-      { name: 'view appointments', module: 'HRPayroll' },
-      { name: 'create appointments', module: 'HRPayroll' },
-      { name: 'edit appointments', module: 'HRPayroll' },
-      { name: 'delete appointments', module: 'HRPayroll' },
-      { name: 'approve appointments', module: 'HRPayroll' },
-      { name: 'view cadres', module: 'HRPayroll' },
-      { name: 'create cadres', module: 'HRPayroll' },
-      { name: 'edit cadres', module: 'HRPayroll' },
-      { name: 'delete cadres', module: 'HRPayroll' },
-      { name: 'view departments', module: 'HRPayroll' },
-      { name: 'create departments', module: 'HRPayroll' },
-      { name: 'edit departments', module: 'HRPayroll' },
-      { name: 'delete departments', module: 'HRPayroll' },
-      { name: 'view employees', module: 'HRPayroll' },
-      { name: 'create employees', module: 'HRPayroll' },
-      { name: 'edit employees', module: 'HRPayroll' },
-      { name: 'delete employees', module: 'HRPayroll' },
-      { name: 'approve employees', module: 'HRPayroll' },
-      { name: 'view grade-levels', module: 'HRPayroll' },
-      { name: 'create grade-levels', module: 'HRPayroll' },
-      { name: 'edit grade-levels', module: 'HRPayroll' },
-      { name: 'delete grade-levels', module: 'HRPayroll' },
-      { name: 'view leaves', module: 'HRPayroll' },
-      { name: 'create leaves', module: 'HRPayroll' },
-      { name: 'edit leaves', module: 'HRPayroll' },
-      { name: 'delete leaves', module: 'HRPayroll' },
-      { name: 'approve leaves', module: 'HRPayroll' },
-      { name: 'view loans', module: 'HRPayroll' },
-      { name: 'create loans', module: 'HRPayroll' },
-      { name: 'edit loans', module: 'HRPayroll' },
-      { name: 'delete loans', module: 'HRPayroll' },
-      { name: 'approve loans', module: 'HRPayroll' },
-      { name: 'view loan-types', module: 'HRPayroll' },
-      { name: 'create loan-types', module: 'HRPayroll' },
-      { name: 'edit loan-types', module: 'HRPayroll' },
-      { name: 'delete loan-types', module: 'HRPayroll' },
-      { name: 'view payrolls', module: 'HRPayroll' },
-      { name: 'create payrolls', module: 'HRPayroll' },
-      { name: 'edit payrolls', module: 'HRPayroll' },
-      { name: 'delete payrolls', module: 'HRPayroll' },
-      { name: 'view payroll-components', module: 'HRPayroll' },
-      { name: 'create payroll-components', module: 'HRPayroll' },
-      { name: 'edit payroll-components', module: 'HRPayroll' },
-      { name: 'delete payroll-components', module: 'HRPayroll' },
-      { name: 'view positions', module: 'HRPayroll' },
-      { name: 'create positions', module: 'HRPayroll' },
-      { name: 'edit positions', module: 'HRPayroll' },
-      { name: 'delete positions', module: 'HRPayroll' },
-      { name: 'view salary-structures', module: 'HRPayroll' },
-      { name: 'create salary-structures', module: 'HRPayroll' },
-      { name: 'edit salary-structures', module: 'HRPayroll' },
-      { name: 'delete salary-structures', module: 'HRPayroll' },
-      { name: 'view statutory-deductions', module: 'HRPayroll' },
-      { name: 'create statutory-deductions', module: 'HRPayroll' },
-      { name: 'edit statutory-deductions', module: 'HRPayroll' },
-      { name: 'delete statutory-deductions', module: 'HRPayroll' },
-      { name: 'import employees', module: 'HRPayroll' },
-      { name: 'import-overwrite employees', module: 'HRPayroll' },
-      // â”€â”€ POS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access POS module', module: 'POS' },
-      { name: 'view cash-registers', module: 'POS' },
-      { name: 'create cash-registers', module: 'POS' },
-      { name: 'edit cash-registers', module: 'POS' },
-      { name: 'delete cash-registers', module: 'POS' },
-      { name: 'view cash-register-sessions', module: 'POS' },
-      { name: 'create cash-register-sessions', module: 'POS' },
-      { name: 'view sales-invoices', module: 'POS' },
-      { name: 'create sales-invoices', module: 'POS' },
-      { name: 'edit sales-invoices', module: 'POS' },
-      { name: 'delete sales-invoices', module: 'POS' },
-      { name: 'view payment-receipts', module: 'POS' },
-      { name: 'create payment-receipts', module: 'POS' },
-      // â”€â”€ IIoT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access IIoT module', module: 'IIoT' },
-      { name: 'view iiot-devices', module: 'IIoT' },
-      { name: 'create iiot-devices', module: 'IIoT' },
-      { name: 'edit iiot-devices', module: 'IIoT' },
-      { name: 'delete iiot-devices', module: 'IIoT' },
-      { name: 'view iiot-tags', module: 'IIoT' },
-      { name: 'create iiot-tags', module: 'IIoT' },
-      { name: 'edit iiot-tags', module: 'IIoT' },
-      { name: 'delete iiot-tags', module: 'IIoT' },
-      { name: 'view iiot-dashboards', module: 'IIoT' },
-      { name: 'create iiot-dashboards', module: 'IIoT' },
-      { name: 'edit iiot-dashboards', module: 'IIoT' },
-      { name: 'delete iiot-dashboards', module: 'IIoT' },
-      { name: 'view iiot-alarms', module: 'IIoT' },
-      { name: 'acknowledge iiot-alarms', module: 'IIoT' },
-      { name: 'view iiot-scale', module: 'IIoT' },
-      { name: 'manage iiot-settings', module: 'IIoT' },
       // â”€â”€ Assets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       { name: 'access Assets module', module: 'Assets' },
       { name: 'view asset-classes', module: 'Assets' },
@@ -1062,67 +622,6 @@ export class TenantDatabaseService {
       { name: 'create assets', module: 'Assets' },
       { name: 'edit assets', module: 'Assets' },
       { name: 'delete assets', module: 'Assets' },
-      // â”€â”€ Manufacturing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access Manufacturing module', module: 'Manufacturing' },
-      { name: 'view shift-patterns', module: 'Manufacturing' },
-      { name: 'create shift-patterns', module: 'Manufacturing' },
-      { name: 'edit shift-patterns', module: 'Manufacturing' },
-      { name: 'delete shift-patterns', module: 'Manufacturing' },
-      { name: 'view work-centers', module: 'Manufacturing' },
-      { name: 'create work-centers', module: 'Manufacturing' },
-      { name: 'edit work-centers', module: 'Manufacturing' },
-      { name: 'delete work-centers', module: 'Manufacturing' },
-      { name: 'view bill-of-materials', module: 'Manufacturing' },
-      { name: 'create bill-of-materials', module: 'Manufacturing' },
-      { name: 'edit bill-of-materials', module: 'Manufacturing' },
-      { name: 'delete bill-of-materials', module: 'Manufacturing' },
-      { name: 'view production-orders', module: 'Manufacturing' },
-      { name: 'create production-orders', module: 'Manufacturing' },
-      { name: 'edit production-orders', module: 'Manufacturing' },
-      { name: 'delete production-orders', module: 'Manufacturing' },
-      // â”€â”€ FleetManagement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access FleetManagement module', module: 'FleetManagement' },
-      { name: 'view vehicles', module: 'FleetManagement' },
-      { name: 'create vehicles', module: 'FleetManagement' },
-      { name: 'edit vehicles', module: 'FleetManagement' },
-      { name: 'delete vehicles', module: 'FleetManagement' },
-      { name: 'view fleet-maintenance', module: 'FleetManagement' },
-      { name: 'create fleet-maintenance', module: 'FleetManagement' },
-      { name: 'edit fleet-maintenance', module: 'FleetManagement' },
-      { name: 'delete fleet-maintenance', module: 'FleetManagement' },
-      { name: 'view fleet-trips', module: 'FleetManagement' },
-      { name: 'create fleet-trips', module: 'FleetManagement' },
-      { name: 'edit fleet-trips', module: 'FleetManagement' },
-      { name: 'delete fleet-trips', module: 'FleetManagement' },
-      // â”€â”€ ProjectManagement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      { name: 'access ProjectManagement module', module: 'ProjectManagement' },
-      { name: 'view projects', module: 'ProjectManagement' },
-      { name: 'create projects', module: 'ProjectManagement' },
-      { name: 'edit projects', module: 'ProjectManagement' },
-      { name: 'delete projects', module: 'ProjectManagement' },
-      { name: 'view tasks', module: 'ProjectManagement' },
-      { name: 'create tasks', module: 'ProjectManagement' },
-      { name: 'edit tasks', module: 'ProjectManagement' },
-      { name: 'delete tasks', module: 'ProjectManagement' },
-      { name: 'view timesheets', module: 'ProjectManagement' },
-      { name: 'create timesheets', module: 'ProjectManagement' },
-      { name: 'edit timesheets', module: 'ProjectManagement' },
-      { name: 'delete timesheets', module: 'ProjectManagement' },
-      { name: 'approve timesheets', module: 'ProjectManagement' },
-      // â”€â”€ FundManagement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      // Granular read permissions used by the shariah-board role and any
-      // future read-only viewer role. The richer write permissions are not
-      // listed here yet because the FM controllers currently rely on
-      // JwtAuthGuard alone for writes â€” wiring those up is a separate step.
-      { name: 'access FundManagement module', module: 'FundManagement' },
-      { name: 'view fund-management', module: 'FundManagement' },
-      { name: 'view fm-investors', module: 'FundManagement' },
-      { name: 'view fm-securities', module: 'FundManagement' },
-      { name: 'view fm-credit-facilities', module: 'FundManagement' },
-      { name: 'view fm-facility-assets', module: 'FundManagement' },
-      { name: 'view fm-contract-signings', module: 'FundManagement' },
-      { name: 'view fm-sharia', module: 'FundManagement' },
-      { name: 'view fm-compliance-reports', module: 'FundManagement' },
     ];
 
     for (const perm of permissions) {
@@ -1138,33 +637,12 @@ export class TenantDatabaseService {
   private async seedRoles(client: PoolClient): Promise<void> {
     const roles = [
       { name: 'Super Admin', description: 'Full system access', permissions: 'all' },
-      { name: 'System Admin', description: 'System administration access', permissions: ['access admin panel', 'view all records', 'manage all records', 'access Core module', 'access HRPayroll module', 'view system logs', 'manage system settings'] },
-      { name: 'Employee', description: 'Basic employee access', permissions: ['access HRPayroll module', 'view employees', 'edit employees', 'view leaves', 'create leaves', 'view loans', 'create loans'] },
-      { name: 'hod', description: 'Head of Department', permissions: ['approve leaves', 'approve loans'] },
+      { name: 'System Admin', description: 'System administration access', permissions: ['access admin panel', 'view all records', 'manage all records', 'access Core module', 'view system logs', 'manage system settings'] },
+      { name: 'hod', description: 'Head of Department', permissions: ['view all records'] },
       { name: 'audit', description: 'Internal Audit', permissions: ['view audit-logs', 'export audit-logs'] },
       { name: 'accountant', description: 'Accountant', permissions: ['access Accounts module'] },
       { name: 'management', description: 'Management', permissions: ['view all records'] },
-      { name: 'cashier', description: 'Cashier', permissions: ['access POS module'] },
-      { name: 'Inventory Manager', description: 'Inventory Manager', permissions: ['access Inventory module'] },
-      { name: 'Operations Manager', description: 'Operations Manager', permissions: ['access Inventory module', 'access Sales module'] },
-      { name: 'fleet_manager', description: 'Fleet Manager â€” approves vehicle bookings, assigns vehicles', permissions: ['access FleetManagement module'] },
-      // Shari'ah Board â€” read-only access to Halal Fund Management features.
-      // No write permissions; POST/PATCH/DELETE on guarded FM endpoints will 403.
-      {
-        name: 'shariah-board',
-        description: "Shari'ah Board â€” read-only access to Halal Fund Management compliance views",
-        permissions: [
-          'access FundManagement module',
-          'view fund-management',
-          'view fm-investors',
-          'view fm-securities',
-          'view fm-credit-facilities',
-          'view fm-facility-assets',
-          'view fm-contract-signings',
-          'view fm-sharia',
-          'view fm-compliance-reports',
-        ],
-      },
+      { name: 'asset_manager', description: 'Asset Manager', permissions: ['access Assets module'] },
     ];
 
     // Get all permissions
@@ -1387,117 +865,6 @@ export class TenantDatabaseService {
     }
   }
 
-  private async seedUnitsOfMeasure(client: PoolClient, companyId: number): Promise<void> {
-    // â”€â”€ Base Units (no baseUomId, conversionFactor = 1) â”€â”€
-    const baseUoms: { code: string; name: string; symbol: string; type: string }[] = [
-      { code: 'PC',  name: 'Piece',    symbol: 'pc',  type: 'quantity' },
-      { code: 'KG',  name: 'Kilogram', symbol: 'kg',  type: 'weight' },
-      { code: 'L',   name: 'Litre',    symbol: 'L',   type: 'volume' },
-      { code: 'M',   name: 'Metre',    symbol: 'm',   type: 'length' },
-      { code: 'HR',  name: 'Hour',     symbol: 'hr',  type: 'time' },
-    ];
-
-    // â”€â”€ Derived Units (linked to a base unit via conversionFactor) â”€â”€
-    const derivedUoms: { code: string; name: string; symbol: string; type: string; baseCode: string; factor: number }[] = [
-      // Weight
-      { code: 'G',    name: 'Gram',         symbol: 'g',    type: 'weight',   baseCode: 'KG', factor: 0.001 },
-      { code: 'TON',  name: 'Tonne',        symbol: 'ton',  type: 'weight',   baseCode: 'KG', factor: 1000 },
-      { code: 'LB',   name: 'Pound',        symbol: 'lb',   type: 'weight',   baseCode: 'KG', factor: 0.4536 },
-      // Volume
-      { code: 'ML',   name: 'Millilitre',   symbol: 'ml',   type: 'volume',   baseCode: 'L',  factor: 0.001 },
-      { code: 'GAL',  name: 'Gallon',       symbol: 'gal',  type: 'volume',   baseCode: 'L',  factor: 3.7854 },
-      // Length
-      { code: 'CM',   name: 'Centimetre',   symbol: 'cm',   type: 'length',   baseCode: 'M',  factor: 0.01 },
-      { code: 'FT',   name: 'Foot',         symbol: 'ft',   type: 'length',   baseCode: 'M',  factor: 0.3048 },
-      { code: 'IN',   name: 'Inch',         symbol: 'in',   type: 'length',   baseCode: 'M',  factor: 0.0254 },
-      // Pack
-      { code: 'BOX',  name: 'Box',          symbol: 'box',  type: 'pack',     baseCode: 'PC', factor: 12 },
-      { code: 'CTN',  name: 'Carton',       symbol: 'ctn',  type: 'pack',     baseCode: 'PC', factor: 24 },
-      { code: 'DZ',   name: 'Dozen',        symbol: 'dz',   type: 'pack',     baseCode: 'PC', factor: 12 },
-      { code: 'BAG',  name: 'Bag',          symbol: 'bag',  type: 'pack',     baseCode: 'PC', factor: 50 },
-      { code: 'PK',   name: 'Pack',         symbol: 'pk',   type: 'pack',     baseCode: 'PC', factor: 6 },
-      { code: 'SET',  name: 'Set',          symbol: 'set',  type: 'pack',     baseCode: 'PC', factor: 1 },
-      { code: 'ROLL', name: 'Roll',         symbol: 'roll', type: 'quantity', baseCode: 'PC', factor: 1 },
-      // Area
-      { code: 'SQM',  name: 'Square Metre', symbol: 'mÂ²',   type: 'area',    baseCode: 'M',  factor: 1 },
-      // Time
-      { code: 'MIN',  name: 'Minute',       symbol: 'min',  type: 'time',     baseCode: 'HR', factor: 0.016667 },
-    ];
-
-    // Insert base units
-    const codeToId = new Map<string, number>();
-    for (const u of baseUoms) {
-      const res = await client.query(
-        `INSERT INTO inv_unit_of_measures ("companyId", "uomCode", name, symbol, "uomType", "conversionFactor", "isActive", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, 1, true, NOW(), NOW())
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [companyId, u.code, u.name, u.symbol, u.type],
-      );
-      if (res.rows.length > 0) {
-        codeToId.set(u.code, res.rows[0].id);
-      } else {
-        // Already exists â€” fetch its id
-        const existing = await client.query(
-          `SELECT id FROM inv_unit_of_measures WHERE "companyId" = $1 AND "uomCode" = $2 AND "deletedAt" IS NULL LIMIT 1`,
-          [companyId, u.code],
-        );
-        if (existing.rows.length > 0) codeToId.set(u.code, existing.rows[0].id);
-      }
-    }
-
-    // Insert derived units
-    for (const u of derivedUoms) {
-      const baseId = codeToId.get(u.baseCode) ?? null;
-      const res = await client.query(
-        `INSERT INTO inv_unit_of_measures ("companyId", "uomCode", name, symbol, "uomType", "baseUomId", "conversionFactor", "isActive", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW(), NOW())
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [companyId, u.code, u.name, u.symbol, u.type, baseId, u.factor],
-      );
-      if (res.rows.length > 0) {
-        codeToId.set(u.code, res.rows[0].id);
-      } else {
-        const existing = await client.query(
-          `SELECT id FROM inv_unit_of_measures WHERE "companyId" = $1 AND "uomCode" = $2 AND "deletedAt" IS NULL LIMIT 1`,
-          [companyId, u.code],
-        );
-        if (existing.rows.length > 0) codeToId.set(u.code, existing.rows[0].id);
-      }
-    }
-
-    // â”€â”€ Seed common unit conversions (bidirectional) â”€â”€
-    const conversions: { from: string; to: string; factor: number }[] = [
-      { from: 'KG',  to: 'G',   factor: 1000 },        // 1 kg = 1000 g
-      { from: 'KG',  to: 'TON', factor: 0.001 },        // 1 kg = 0.001 ton
-      { from: 'KG',  to: 'LB',  factor: 2.2046 },       // 1 kg = 2.2046 lb
-      { from: 'L',   to: 'ML',  factor: 1000 },          // 1 L  = 1000 ml
-      { from: 'L',   to: 'GAL', factor: 0.2642 },        // 1 L  = 0.2642 gal
-      { from: 'M',   to: 'CM',  factor: 100 },            // 1 m  = 100 cm
-      { from: 'M',   to: 'FT',  factor: 3.2808 },        // 1 m  = 3.2808 ft
-      { from: 'M',   to: 'IN',  factor: 39.3701 },        // 1 m  = 39.3701 in
-      { from: 'HR',  to: 'MIN', factor: 60 },             // 1 hr = 60 min
-      { from: 'DZ',  to: 'PC',  factor: 12 },             // 1 dz = 12 pc
-      { from: 'BOX', to: 'PC',  factor: 12 },             // 1 box = 12 pc
-      { from: 'CTN', to: 'PC',  factor: 24 },             // 1 ctn = 24 pc
-      { from: 'BAG', to: 'PC',  factor: 50 },             // 1 bag = 50 pc
-      { from: 'PK',  to: 'PC',  factor: 6 },              // 1 pk = 6 pc
-    ];
-
-    for (const c of conversions) {
-      const fromId = codeToId.get(c.from);
-      const toId = codeToId.get(c.to);
-      if (!fromId || !toId) continue;
-      await client.query(
-        `INSERT INTO inv_unit_conversions ("companyId", "fromUnitId", "toUnitId", "conversionFactor", "isBidirectional", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, true, NOW(), NOW())
-         ON CONFLICT DO NOTHING`,
-        [companyId, fromId, toId, c.factor],
-      );
-    }
-  }
-
   /**
    * Seed default currencies (NGN is created in base records, this adds common international currencies)
    */
@@ -1534,63 +901,13 @@ export class TenantDatabaseService {
     }
   }
 
-  private async seedWarehouse(client: PoolClient, companyId: number, branchId: number): Promise<void> {
-    await client.query(
-      `INSERT INTO inv_warehouses ("companyId", "branchId", code, name, "isDefault", "isActive", "createdAt", "updatedAt")
-       VALUES ($1, $2, 'MAIN', 'Main Warehouse', true, true, NOW(), NOW())
-       ON CONFLICT DO NOTHING`,
-      [companyId, branchId],
-    );
-  }
-
-  private async seedWalkInCustomer(client: PoolClient, companyId: number, branchId: number): Promise<void> {
-    const result = await client.query(
-      `INSERT INTO customers ("companyId", code, name, email, phone, "customerType", "isActive", "isWalkInCustomer", "createdAt", "updatedAt")
-       VALUES ($1, 'WALK-IN', 'Walk-in Customer', 'walkin@pos.local', '0000000000', 'RETAIL', true, true, NOW(), NOW())
-       ON CONFLICT DO NOTHING
-       RETURNING id`,
-      [companyId],
-    );
-
-    if (result.rows.length > 0) {
-      const customerId = result.rows[0].id;
-      await client.query(
-        `INSERT INTO branch_customer ("branchId", "customerId", "createdAt", "updatedAt")
-         VALUES ($1, $2, NOW(), NOW())
-         ON CONFLICT DO NOTHING`,
-        [branchId, customerId],
-      );
-    }
-  }
-
-  private async seedLoanTypes(client: PoolClient, companyId: number): Promise<void> {
-    const loanTypes = [
-      { name: 'Salary Advance', code: 'SAL_ADV', interestRate: 0, maxTenure: 1, eligibilityMonths: 3, requiresGuarantor: false },
-      { name: 'Personal Loan', code: 'PERSONAL', interestRate: 5, maxTenure: 12, eligibilityMonths: 6, requiresGuarantor: true },
-      { name: 'Emergency Loan', code: 'EMERGENCY', interestRate: 0, maxTenure: 3, eligibilityMonths: 3, requiresGuarantor: false },
-      { name: 'Car Loan', code: 'CAR', interestRate: 8, maxTenure: 48, eligibilityMonths: 24, requiresGuarantor: true },
-    ];
-
-    for (const loan of loanTypes) {
-      await client.query(
-        `INSERT INTO loan_types ("companyId", name, code, "interestRate", "maxTenure", "eligibilityMonths", "requiresGuarantor", "isActive", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW(), NOW())
-         ON CONFLICT DO NOTHING`,
-        [companyId, loan.name, loan.code, loan.interestRate, loan.maxTenure, loan.eligibilityMonths, loan.requiresGuarantor],
-      );
-    }
-  }
-
   private async seedApprovalFlows(client: PoolClient, companyId: number): Promise<void> {
     // Fetch all needed roles in one query
     const roleResult = await client.query(
-      `SELECT id, name FROM roles WHERE name IN ('hod','audit','accountant','management','cashier','Inventory Manager','fleet_manager') AND "guardName" = 'web'`,
+      `SELECT id, name FROM roles WHERE name IN ('hod','audit','accountant','management') AND "guardName" = 'web'`,
     );
     const roleMap: Record<string, number> = {};
     for (const r of roleResult.rows) roleMap[r.name] = r.id;
-    // Alias for ISR final "Issue Stock" step â€” fall back to cashier if Inventory Manager role missing
-    if (roleMap['Inventory Manager']) roleMap['inventory_manager'] = roleMap['Inventory Manager'];
-
     if (!roleMap['hod']) return; // no roles seeded yet
 
     // Expense Request Approval Flow â€” 5 configurable steps
@@ -1608,7 +925,7 @@ export class TenantDatabaseService {
         { name: 'Audit Review', order: 2, role: 'audit' },
         { name: 'Accountant and Finance Coding/Approval', order: 3, role: 'accountant', isLocked: true, stepType: 'accountant' },
         { name: 'Management Approval', order: 4, role: 'management' },
-        { name: 'Payment Processing', order: 5, role: 'cashier', isLocked: true, isFinalStep: true, stepType: 'payment' },
+        { name: 'Payment Processing', order: 5, role: 'accountant', isLocked: true, isFinalStep: true, stepType: 'payment' },
       ];
       for (const step of expenseSteps) {
         const roleId = roleMap[step.role];
@@ -1620,61 +937,6 @@ export class TenantDatabaseService {
         );
       }
     }
-
-    // Payroll Approval Flow — copies steps from expense_requests flow (tenant-configured chain)
-    const payrollFlowResult = await client.query(
-      `INSERT INTO process_approval_flows (“companyId”, name, “approvableType”, “entitySlug”, description, “isActive”, “createdAt”, “updatedAt”)
-       VALUES ($1, 'Payroll Approval', 'payroll_runs', 'hrpayroll.payrolls', 'Approval workflow for payroll runs — mirrors expense request approval chain', true, NOW(), NOW())
-       ON CONFLICT DO NOTHING RETURNING id`,
-      [companyId],
-    );
-
-    if (payrollFlowResult.rows.length > 0) {
-      const payrollFlowId = payrollFlowResult.rows[0].id;
-      // Copy steps from the expense_requests flow seeded just above
-      const expenseStepsResult = await client.query(
-        `SELECT s.”roleId”, s.name, s.”stepOrder”, s.action, s.”isRequired”, s.”isActive”, s.”isLocked”, s.”isFinalStep”, s.”stepType”
-         FROM process_approval_flow_steps s
-         JOIN process_approval_flows f ON f.id = s.”processApprovalFlowId”
-         WHERE f.”approvableType” = 'expense_requests' AND f.”companyId” = $1 AND f.”isActive” = true
-         ORDER BY s.”stepOrder”`,
-        [companyId],
-      );
-      for (const step of expenseStepsResult.rows) {
-        await client.query(
-          `INSERT INTO process_approval_flow_steps (“processApprovalFlowId”, “companyId”, “roleId”, name, “stepOrder”, action, “isRequired”, “isActive”, “isLocked”, “isFinalStep”, “stepType”, “createdAt”, “updatedAt”)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-          [payrollFlowId, companyId, step.roleId, step.name, step.stepOrder,
-           step.action, step.isRequired, step.isActive, step.isLocked, step.isFinalStep, step.stepType],
-        );
-      }
-    }
-
-    // Purchase Requisition Approval Flow — 2 configurable steps
-    const prFlowResult = await client.query(
-      `INSERT INTO process_approval_flows ("companyId", name, "approvableType", "entitySlug", description, "isActive", "createdAt", "updatedAt")
-       VALUES ($1, 'Purchase Requisition Approval', 'purchase_requisitions', 'purchase.requisitions', 'Configurable approval workflow for purchase requisitions', true, NOW(), NOW())
-       ON CONFLICT DO NOTHING RETURNING id`,
-      [companyId],
-    );
-
-    if (prFlowResult.rows.length > 0) {
-      const prFlowId = prFlowResult.rows[0].id;
-      const prSteps = [
-        { name: 'HOD Approval', order: 1, role: 'hod' },
-        { name: 'Management Approval', order: 2, role: 'management' },
-      ];
-      for (const step of prSteps) {
-        const roleId = roleMap[step.role];
-        if (!roleId) continue;
-        await client.query(
-          `INSERT INTO process_approval_flow_steps ("processApprovalFlowId", "companyId", "roleId", name, "stepOrder", action, "isRequired", "isActive", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, 'APPROVE', true, true, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-          [prFlowId, companyId, roleId, step.name, step.order],
-        );
-      }
-    }
-
     // Define remaining flows: [name, approvableType, entitySlug, steps[]]
     const remainingFlows: Array<{
       name: string;
@@ -1682,52 +944,6 @@ export class TenantDatabaseService {
       entitySlug: string;
       steps: Array<{ name: string; order: number; role: string; isLocked?: boolean; isFinalStep?: boolean }>;
     }> = [
-      {
-        name: 'Purchase Order Approval',
-        approvableType: 'purchase_orders',
-        entitySlug: 'purchase.orders',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-          { name: 'Management Approval', order: 2, role: 'management' },
-        ],
-      },
-      {
-        name: 'Supplier Payment Approval',
-        approvableType: 'supplier_payments',
-        entitySlug: 'payables.payments',
-        steps: [
-          { name: 'Internal Audit Check', order: 1, role: 'audit' },
-          { name: 'Accountant Review', order: 2, role: 'accountant' },
-          { name: 'General Manager Approval', order: 3, role: 'management' },
-          { name: 'Management Approval', order: 4, role: 'management' },
-          { name: 'Payment Processing', order: 5, role: 'cashier', isLocked: true, isFinalStep: true },
-        ],
-      },
-      {
-        name: 'Sales Order Approval',
-        approvableType: 'sales_orders',
-        entitySlug: 'sales.orders',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-        ],
-      },
-      {
-        name: 'Sales Invoice Approval',
-        approvableType: 'sales_invoices',
-        entitySlug: 'sales.invoices',
-        steps: [
-          { name: 'Accountant Review', order: 1, role: 'accountant' },
-        ],
-      },
-      {
-        name: 'Customer Receipt Approval',
-        approvableType: 'customer_receipts',
-        entitySlug: 'receivables.receipts',
-        steps: [
-          { name: 'Accountant Review', order: 1, role: 'accountant' },
-          { name: 'Management Approval', order: 2, role: 'management' },
-        ],
-      },
       {
         name: 'Journal Entry Approval',
         approvableType: 'journal_entries',
@@ -1749,98 +965,7 @@ export class TenantDatabaseService {
           { name: 'Transfer Processing', order: 5, role: 'accountant', isLocked: true, isFinalStep: true },
         ],
       },
-      {
-        name: 'Inventory Transfer Approval',
-        approvableType: 'inventory_transfers',
-        entitySlug: 'inventory.transfers',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-        ],
-      },
-      {
-        name: 'Inventory Adjustment Approval',
-        approvableType: 'inventory_adjustments',
-        entitySlug: 'inventory.adjustments',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-          { name: 'Audit Review', order: 2, role: 'audit' },
-        ],
-      },
-      {
-        name: 'Internal Stock Request Approval',
-        approvableType: 'internal_stock_requests',
-        entitySlug: 'inventory.stock-requests',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-          { name: 'Audit Review', order: 2, role: 'audit' },
-          // Final "Issue Stock" step â€” defaults to Inventory Manager, falls back to cashier if absent
-          { name: 'Issue Stock', order: 3, role: 'inventory_manager', isFinalStep: true },
-        ],
-      },
-      {
-        name: 'Leave Request Approval',
-        approvableType: 'leave_requests',
-        entitySlug: 'hrpayroll.leave-requests',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-        ],
-      },
-      {
-        name: 'Payroll Run Approval',
-        approvableType: 'payroll_runs',
-        entitySlug: 'hrpayroll.payroll-runs',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-          { name: 'Management Approval', order: 2, role: 'management' },
-        ],
-      },
-      {
-        name: 'Employee Loan Approval',
-        approvableType: 'employee_loans',
-        entitySlug: 'hrpayroll.loans',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-          { name: 'HR Review', order: 2, role: 'management' },
-          { name: 'Finance Approval', order: 3, role: 'accountant', isFinalStep: true },
-        ],
-      },
-      {
-        name: 'Customer Onboarding Approval',
-        approvableType: 'investor_onboarding',
-        entitySlug: 'fund-management.customer-onboarding',
-        steps: [
-          { name: 'Compliance Officer Review', order: 1, role: 'audit' },
-          { name: 'Manager Sign-off', order: 2, role: 'management', isFinalStep: true },
-        ],
-      },
-      {
-        name: 'Vehicle Booking Approval',
-        approvableType: 'vehicle_bookings',
-        entitySlug: 'fleet-management.bookings',
-        steps: [
-          { name: 'Fleet Manager Approval', order: 1, role: 'fleet_manager', isFinalStep: true },
-        ],
-      },
-      {
-        name: 'Credit Note Approval',
-        approvableType: 'credit_notes',
-        entitySlug: 'receivables.credit-notes',
-        steps: [
-          { name: 'Accountant Review', order: 1, role: 'accountant' },
-          { name: 'Management Approval', order: 2, role: 'management', isFinalStep: true },
-        ],
-      },
-      {
-        name: 'Loading Order Approval',
-        approvableType: 'loading_orders',
-        entitySlug: 'sales.loading-orders',
-        steps: [
-          { name: 'HOD Approval', order: 1, role: 'hod' },
-          { name: 'Management Approval', order: 2, role: 'management', isFinalStep: true },
-        ],
-      },
     ];
-
     for (const flow of remainingFlows) {
       const flowResult = await client.query(
         `INSERT INTO process_approval_flows ("companyId", name, "approvableType", "entitySlug", description, "isActive", "createdAt", "updatedAt")
@@ -1852,14 +977,7 @@ export class TenantDatabaseService {
       if (flowResult.rows.length > 0) {
         const flowId = flowResult.rows[0].id;
         for (const step of flow.steps) {
-          // Fallback: inventory_manager â†’ cashier when Inventory Manager role doesn't exist
-          let resolvedRole = step.role;
-          let roleId = roleMap[resolvedRole];
-          if (!roleId && step.role === 'inventory_manager') {
-            this.logger.warn(`Role 'Inventory Manager' missing for company ${companyId}; falling back to 'cashier' for step '${step.name}'`);
-            resolvedRole = 'cashier';
-            roleId = roleMap[resolvedRole];
-          }
+          const roleId = roleMap[step.role];
           if (!roleId) {
             this.logger.warn(`Role '${step.role}' missing for company ${companyId}; skipping step '${step.name}' in flow '${flow.name}'`);
             continue;
@@ -1872,74 +990,7 @@ export class TenantDatabaseService {
         }
       }
     }
-
-    // Document Review Approval Flow — 2 steps (HOD → Management)
-    const dmsFlowResult = await client.query(
-      `INSERT INTO process_approval_flows ("companyId", name, "approvableType", "entitySlug", description, "isActive", "createdAt", "updatedAt")
-       VALUES ($1, 'Document Review Approval', 'dms_documents', 'documents.repository', 'Review and approve uploaded documents', true, NOW(), NOW())
-       ON CONFLICT DO NOTHING RETURNING id`,
-      [companyId],
-    );
-
-    if (dmsFlowResult.rows.length > 0) {
-      const dmsFlowId = dmsFlowResult.rows[0].id;
-      const dmsSteps = [
-        { name: 'HOD Review', order: 1, role: 'hod' },
-        { name: 'Management Approval', order: 2, role: 'management', isFinalStep: true },
-      ];
-      for (const step of dmsSteps) {
-        const roleId = roleMap[step.role];
-        if (!roleId) continue;
-        await client.query(
-          `INSERT INTO process_approval_flow_steps ("processApprovalFlowId", "companyId", "roleId", name, "stepOrder", action, "isRequired", "isActive", "isFinalStep", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, 'APPROVE', true, true, $6, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-          [dmsFlowId, companyId, roleId, step.name, step.order, step.isFinalStep ?? false],
-        );
-      }
-    }
   }
-
-  /**
-   * Mark documents past their expiresAt date as EXPIRED across all tenant schemas.
-   * Called daily by DocumentsScheduler.
-   */
-  async markExpiredDocuments(): Promise<{ tenantsProcessed: number; documentsExpired: number }> {
-    const listClient = await this.pool.connect();
-    let schemas: string[] = [];
-    try {
-      const result = await listClient.query(
-        `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%' ORDER BY schema_name`,
-      );
-      schemas = result.rows.map((r: { schema_name: string }) => r.schema_name);
-    } finally {
-      listClient.release();
-    }
-
-    let documentsExpired = 0;
-    for (const schema of schemas) {
-      const client = await this.pool.connect();
-      try {
-        await client.query(`SET search_path TO "${schema}"`);
-        const result = await client.query(
-          `UPDATE dms_documents
-           SET status = 'EXPIRED', "updatedAt" = NOW()
-           WHERE status NOT IN ('EXPIRED', 'SUPERSEDED', 'REJECTED')
-             AND "deletedAt" IS NULL
-             AND "expiresAt" IS NOT NULL
-             AND "expiresAt" < NOW()`,
-        );
-        documentsExpired += result.rowCount ?? 0;
-      } catch (err) {
-        this.logger.warn(`Failed to mark expired docs in ${schema}: ${(err as Error).message}`);
-      } finally {
-        await client.query(`SET search_path TO "public"`);
-        client.release();
-      }
-    }
-
-    return { tenantsProcessed: schemas.length, documentsExpired };
-  }
-
   /**
    * Run a single query in a specific tenant schema by name.
    * Used by public (no-auth) endpoints that receive the tenantSlug from the URL.
@@ -1961,411 +1012,15 @@ export class TenantDatabaseService {
     }
   }
 
-  private async seedFleetVehicleServiceTypes(client: PoolClient, companyId: number): Promise<void> {
-    const types = [
-      { name: 'Truck',           code: 'TRUCK' },
-      { name: 'Van',             code: 'VAN' },
-      { name: 'Car',             code: 'CAR' },
-      { name: 'Motorcycle',      code: 'MOTORCYCLE' },
-      { name: 'Bus',             code: 'BUS' },
-      { name: 'Trailer',         code: 'TRAILER' },
-      { name: 'Heavy Equipment', code: 'HEAVY_EQUIPMENT' },
-      { name: 'Other',           code: 'OTHER' },
-    ];
-    for (const t of types) {
-      await client.query(
-        `INSERT INTO fleet_vehicle_service_types (name, code, "isSystem", "isActive", "companyId", "createdAt", "updatedAt")
-         VALUES ($1, $2, true, true, $3, NOW(), NOW())
-         ON CONFLICT DO NOTHING`,
-        [t.name, t.code, companyId],
-      );
-    }
-  }
-
   /**
    * Seed default fund products from the D'Namaz Capital term sheet.
    * These are seeded per-tenant so each client can edit/customise their own copy.
    * Uses ON CONFLICT (fundCode) DO NOTHING â€” safe to re-run.
    */
-  private async seedFundProducts(client: PoolClient, companyId: number): Promise<void> {
-    const funds = [
-      {
-        fundCode: 'DHFIF',
-        name: "D'Namaz Halal Fixed Income Fund",
-        shortName: 'DHFIF',
-        description:
-          'A SEC-registered mutual fund that provides investors with long-term income generation, stable cash distribution, and capital preservation through FGN Sukuks, shariah-compliant income contracts, and fixed-term investments.',
-        fundType: 'OPEN_ENDED',
-        baseCurrency: 'NGN',
-        isShariaCompliant: true,
-        navFrequency: 'MONTHLY',
-        regulatoryType: 'SEC',
-        minimumSubscription: 10000.00,
-        lockUpPeriodDays: 90,        // 3 months
-        redemptionNoticeDays: 5,
-        benchmarkFormula: '70% FGN Sukuk Yield + 30% Treasury Bill Rates',
-        profitSharingRatio: null,    // benchmark-based, not a fixed split
-        projectedRate: null,
-        autoReinvest: false,
-        status: 'ACTIVE',
-        inceptionDate: '2024-01-01',
-      },
-      {
-        fundCode: 'MIA',
-        name: 'Mudarabah Investment Account',
-        shortName: 'MIA',
-        description:
-          'A discretionary Mudarabah investment account that achieves long-term capital appreciation and income generation through a well-diversified portfolio of equity, sukuk, commodity, real estate, facilities, and shariah-compliant money market instruments.',
-        fundType: 'OPEN_ENDED',
-        baseCurrency: 'NGN',
-        isShariaCompliant: true,
-        navFrequency: 'MONTHLY',
-        regulatoryType: 'SEC',
-        minimumSubscription: 1000000.00,
-        lockUpPeriodDays: 180,       // 6 months
-        redemptionNoticeDays: 5,
-        benchmarkFormula: null,
-        profitSharingRatio: '55:45',
-        projectedRate: 16.00,
-        autoReinvest: false,
-        status: 'ACTIVE',
-        inceptionDate: '2024-01-01',
-      },
-      {
-        fundCode: 'BKMI',
-        name: 'Barakah Kids Mudarabah Investment Account',
-        shortName: 'BKMI',
-        description:
-          'A long-horizon Mudarabah account designed for children from age 2 and above, managed until the beneficiary turns 18. Profits are reinvested automatically. All investments are held under the custody of parents or guardians.',
-        fundType: 'OPEN_ENDED',
-        baseCurrency: 'NGN',
-        isShariaCompliant: true,
-        navFrequency: 'MONTHLY',
-        regulatoryType: 'SEC',
-        minimumSubscription: 1000000.00,
-        lockUpPeriodDays: 365,       // 12 months minimum; runs to age 18
-        redemptionNoticeDays: 5,
-        benchmarkFormula: null,
-        profitSharingRatio: '55:45',
-        projectedRate: 16.00,
-        autoReinvest: true,          // profits reinvested, not distributed
-        status: 'ACTIVE',
-        inceptionDate: '2024-01-01',
-      },
-      {
-        fundCode: 'EMP',
-        name: 'Equity Mudarabah Portfolio',
-        shortName: 'EMP',
-        description:
-          'A discretionary equity-focused Mudarabah portfolio investing in shariah-compliant shares on the NGX and other exchanges, Mudarabah/Musharakah facilities to SMEs, fast-moving commodity goods, healthcare, and technology.',
-        fundType: 'OPEN_ENDED',
-        baseCurrency: 'NGN',
-        isShariaCompliant: true,
-        navFrequency: 'MONTHLY',
-        regulatoryType: 'SEC',
-        minimumSubscription: 1000000.00,
-        lockUpPeriodDays: 180,       // 6 months
-        redemptionNoticeDays: 5,
-        benchmarkFormula: null,
-        profitSharingRatio: '55:45',
-        projectedRate: null,
-        autoReinvest: false,
-        status: 'ACTIVE',
-        inceptionDate: '2024-01-01',
-      },
-      {
-        fundCode: 'D-REIN',
-        name: "D'Namaz Real Estate Mudarabah Investment",
-        shortName: 'D-REIN',
-        description:
-          'A real estate investment portfolio targeting rental income and capital appreciation through acquisition and development of shariah-compliant residential, commercial, and industrial properties. Targeted at high-net-worth and institutional investors.',
-        fundType: 'OPEN_ENDED',
-        baseCurrency: 'NGN',
-        isShariaCompliant: true,
-        navFrequency: 'MONTHLY',
-        regulatoryType: 'SEC',
-        minimumSubscription: 50000000.00,
-        lockUpPeriodDays: 365,       // 12 months
-        redemptionNoticeDays: 5,
-        benchmarkFormula: null,
-        profitSharingRatio: '55:45',
-        projectedRate: 20.00,
-        autoReinvest: false,
-        status: 'ACTIVE',
-        inceptionDate: '2024-01-01',
-      },
-      {
-        fundCode: 'CMP',
-        name: 'Commodity Mudarabah Portfolio',
-        shortName: 'CMP',
-        description:
-          'A commodity trading portfolio that buys and sells shariah-compliant tangible cash crops (cocoa, oil palm, groundnut, cotton, sesame seeds, rice), gold, oil and gas, and other qualified shariah-compliant minerals and commodity-related financing.',
-        fundType: 'OPEN_ENDED',
-        baseCurrency: 'NGN',
-        isShariaCompliant: true,
-        navFrequency: 'MONTHLY',
-        regulatoryType: 'SEC',
-        minimumSubscription: 1000000.00,
-        lockUpPeriodDays: 180,       // 6 months
-        redemptionNoticeDays: 5,
-        benchmarkFormula: null,
-        profitSharingRatio: '55:45',
-        projectedRate: 16.00,
-        autoReinvest: false,
-        status: 'ACTIVE',
-        inceptionDate: '2024-01-01',
-      },
-    ];
-
-    for (const f of funds) {
-      await client.query(
-        `INSERT INTO fm_funds (
-          "fundCode", name, "shortName", description, "fundType",
-          "baseCurrency", "isShariaCompliant", "navFrequency", "regulatoryType",
-          "minimumSubscription", "lockUpPeriodDays", "redemptionNoticeDays",
-          "benchmarkFormula", "profitSharingRatio", "projectedRate",
-          "autoReinvest", status, "inceptionDate", "companyId", "createdAt", "updatedAt"
-        ) VALUES (
-          $1,$2,$3,$4,$5::\"FmFundType\",
-          $6,$7,$8::\"FmNavFrequency\",$9,
-          $10,$11,$12,
-          $13,$14,$15,
-          $16,$17,$18::date,$19,NOW(),NOW()
-        )
-        ON CONFLICT ("fundCode") DO NOTHING`,
-        [
-          f.fundCode, f.name, f.shortName, f.description, f.fundType,
-          f.baseCurrency, f.isShariaCompliant, f.navFrequency, f.regulatoryType,
-          f.minimumSubscription, f.lockUpPeriodDays, f.redemptionNoticeDays,
-          f.benchmarkFormula, f.profitSharingRatio, f.projectedRate,
-          f.autoReinvest, f.status, f.inceptionDate, companyId,
-        ],
-      );
-    }
-  }
-
-  private async seedCreditFacilityTypes(client: PoolClient, companyId: number): Promise<void> {
-    const types = [
-      {
-        code: 'MRB-STD',
-        name: 'Standard Murabaha Facility',
-        description: 'Cost-plus trade finance for goods, equipment, and working capital. The fund purchases the asset and sells to the investee at a fixed markup. Profit rate is fixed at signing â€” no interest.',
-        facilityStructure: 'murabaha',
-        profitRate: 16.00,
-        profitCalculation: 'flat',
-        repaymentMethod: 'emi',
-        repaymentFrequency: 'monthly',
-        minAmount: 500000,
-        maxAmount: 50000000,
-        minTenureMonths: 3,
-        maxTenureMonths: 24,
-        processingFee: 0,
-        processingFeeType: 'fixed',
-        managerProfitSharePct: 55,
-        investorProfitSharePct: 45,
-        requiresApproval: true,
-        isShariaCompliant: true,
-      },
-      {
-        code: 'MDB-STD',
-        name: 'Standard Mudarabah Investment Facility',
-        description: 'Capital provision to SMEs and businesses where the fund provides 100% capital and the investee provides expertise. Profits split per agreed ratio; losses fall to the fund (capital provider).',
-        facilityStructure: 'mudarabah',
-        profitRate: 16.00,
-        profitCalculation: 'flat',
-        repaymentMethod: 'bullet',
-        repaymentFrequency: 'quarterly',
-        minAmount: 1000000,
-        maxAmount: 100000000,
-        minTenureMonths: 6,
-        maxTenureMonths: 36,
-        processingFee: 0,
-        processingFeeType: 'fixed',
-        managerProfitSharePct: 55,
-        investorProfitSharePct: 45,
-        requiresApproval: true,
-        isShariaCompliant: true,
-      },
-      {
-        code: 'MSH-STD',
-        name: 'Standard Musharakah Partnership Facility',
-        description: 'Joint venture partnership where both the fund and investee contribute capital and share profits and losses proportionally. Used for business expansion, real estate, and equity co-investments.',
-        facilityStructure: 'musharakah',
-        profitRate: 16.00,
-        profitCalculation: 'flat',
-        repaymentMethod: 'emi',
-        repaymentFrequency: 'quarterly',
-        minAmount: 2000000,
-        maxAmount: 200000000,
-        minTenureMonths: 6,
-        maxTenureMonths: 36,
-        processingFee: 0,
-        processingFeeType: 'fixed',
-        managerProfitSharePct: 55,
-        investorProfitSharePct: 45,
-        requiresApproval: true,
-        isShariaCompliant: true,
-      },
-      {
-        code: 'IJR-STD',
-        name: 'Standard Ijarah Lease Facility',
-        description: 'Asset-backed lease financing. The fund purchases and owns the asset; the investee pays rent for its use. Rent is consideration for usufruct â€” not interest. Option to purchase at end of tenure (Ijarah Muntahia Bittamleek).',
-        facilityStructure: 'ijarah',
-        profitRate: 16.00,
-        profitCalculation: 'flat',
-        repaymentMethod: 'emi',
-        repaymentFrequency: 'monthly',
-        minAmount: 1000000,
-        maxAmount: 100000000,
-        minTenureMonths: 12,
-        maxTenureMonths: 60,
-        processingFee: 0,
-        processingFeeType: 'fixed',
-        managerProfitSharePct: 55,
-        investorProfitSharePct: 45,
-        requiresApproval: true,
-        isShariaCompliant: true,
-      },
-      {
-        code: 'REIN-MSH',
-        name: 'Real Estate Musharakah Facility',
-        description: 'Diminishing Musharakah for real estate acquisition and development. The fund and investee co-own the property; the investee progressively buys out the fund\'s share via installments. Used for residential, commercial, and industrial property.',
-        facilityStructure: 'musharakah',
-        profitRate: 20.00,
-        profitCalculation: 'declining_balance',
-        repaymentMethod: 'emi',
-        repaymentFrequency: 'monthly',
-        minAmount: 10000000,
-        maxAmount: 500000000,
-        minTenureMonths: 12,
-        maxTenureMonths: 60,
-        processingFee: 0,
-        processingFeeType: 'fixed',
-        managerProfitSharePct: 55,
-        investorProfitSharePct: 45,
-        requiresApproval: true,
-        isShariaCompliant: true,
-      },
-      {
-        code: 'CMP-MRB',
-        name: 'Commodity Murabaha Trade Finance',
-        description: 'Short-term commodity trade finance. Fund purchases commodity (cocoa, palm oil, sesame, rice, cotton, etc.) and on-sells to the investee at a fixed markup payable at maturity. Ideal for seasonal commodity traders and agribusinesses.',
-        facilityStructure: 'murabaha',
-        profitRate: 16.00,
-        profitCalculation: 'flat',
-        repaymentMethod: 'bullet',
-        repaymentFrequency: 'lump_sum',
-        minAmount: 500000,
-        maxAmount: 50000000,
-        minTenureMonths: 1,
-        maxTenureMonths: 12,
-        processingFee: 0,
-        processingFeeType: 'fixed',
-        managerProfitSharePct: 55,
-        investorProfitSharePct: 45,
-        requiresApproval: true,
-        isShariaCompliant: true,
-      },
-    ];
-
-    for (const t of types) {
-      await client.query(
-        `INSERT INTO fm_credit_facility_types (
-          "companyId", code, name, description,
-          "facilityStructure", "profitRate", "profitCalculation",
-          "repaymentMethod", "repaymentFrequency",
-          "minAmount", "maxAmount", "minTenureMonths", "maxTenureMonths",
-          "processingFee", "processingFeeType",
-          "managerProfitSharePct", "investorProfitSharePct",
-          "requiresApproval", "isShariaCompliant", "isActive",
-          "createdAt", "updatedAt"
-        ) VALUES (
-          $1,$2,$3,$4,
-          $5,$6,$7,
-          $8,$9,
-          $10,$11,$12,$13,
-          $14,$15,
-          $16,$17,
-          $18,$19,true,
-          NOW(),NOW()
-        )
-        ON CONFLICT ("companyId", code) DO NOTHING`,
-        [
-          companyId, t.code, t.name, t.description,
-          t.facilityStructure, t.profitRate, t.profitCalculation,
-          t.repaymentMethod, t.repaymentFrequency,
-          t.minAmount, t.maxAmount, t.minTenureMonths, t.maxTenureMonths,
-          t.processingFee, t.processingFeeType,
-          t.managerProfitSharePct, t.investorProfitSharePct,
-          t.requiresApproval, t.isShariaCompliant,
-        ],
-      );
-    }
-  }
 
   /**
    * Seed default Document Management System categories
    */
-  private async seedDocumentCategories(client: PoolClient, companyId: number): Promise<void> {
-    const categories = [
-      // Top-level
-      { name: 'Finance', slug: 'finance', color: '#3B82F6', icon: 'Wallet', sortOrder: 1, parentSlug: null },
-      { name: 'Procurement', slug: 'procurement', color: '#F59E0B', icon: 'ShoppingCart', sortOrder: 2, parentSlug: null },
-      { name: 'HR', slug: 'hr', color: '#8B5CF6', icon: 'Users', sortOrder: 3, parentSlug: null },
-      { name: 'Legal & Compliance', slug: 'legal-compliance', color: '#EF4444', icon: 'Scale', sortOrder: 4, parentSlug: null },
-      { name: 'Operations', slug: 'operations', color: '#10B981', icon: 'Settings', sortOrder: 5, parentSlug: null },
-      { name: 'General', slug: 'general', color: '#6B7280', icon: 'Folder', sortOrder: 6, parentSlug: null },
-      // Finance children
-      { name: 'Invoices', slug: 'finance-invoices', color: '#3B82F6', icon: 'FileText', sortOrder: 1, parentSlug: 'finance' },
-      { name: 'Receipts', slug: 'finance-receipts', color: '#3B82F6', icon: 'Receipt', sortOrder: 2, parentSlug: 'finance' },
-      { name: 'Bank Statements', slug: 'finance-bank-statements', color: '#3B82F6', icon: 'Building2', sortOrder: 3, parentSlug: 'finance' },
-      { name: 'Expense Reports', slug: 'finance-expense-reports', color: '#3B82F6', icon: 'CreditCard', sortOrder: 4, parentSlug: 'finance' },
-      // Procurement children
-      { name: 'Purchase Orders', slug: 'procurement-pos', color: '#F59E0B', icon: 'ClipboardList', sortOrder: 1, parentSlug: 'procurement' },
-      { name: 'Supplier Contracts', slug: 'procurement-contracts', color: '#F59E0B', icon: 'FileSignature', sortOrder: 2, parentSlug: 'procurement' },
-      { name: 'GRN Documents', slug: 'procurement-grn', color: '#F59E0B', icon: 'Package', sortOrder: 3, parentSlug: 'procurement' },
-      // HR children
-      { name: 'Employment Contracts', slug: 'hr-employment-contracts', color: '#8B5CF6', icon: 'FileCheck', sortOrder: 1, parentSlug: 'hr' },
-      { name: 'Payslips', slug: 'hr-payslips', color: '#8B5CF6', icon: 'DollarSign', sortOrder: 2, parentSlug: 'hr' },
-      { name: 'Leave Documents', slug: 'hr-leave', color: '#8B5CF6', icon: 'Calendar', sortOrder: 3, parentSlug: 'hr' },
-      { name: 'Certificates', slug: 'hr-certificates', color: '#8B5CF6', icon: 'Award', sortOrder: 4, parentSlug: 'hr' },
-      // Legal children
-      { name: 'Licenses', slug: 'legal-licenses', color: '#EF4444', icon: 'BadgeCheck', sortOrder: 1, parentSlug: 'legal-compliance' },
-      { name: 'Regulatory Filings', slug: 'legal-filings', color: '#EF4444', icon: 'FilePlus', sortOrder: 2, parentSlug: 'legal-compliance' },
-      { name: 'Insurance Certificates', slug: 'legal-insurance', color: '#EF4444', icon: 'Shield', sortOrder: 3, parentSlug: 'legal-compliance' },
-      // Operations children
-      { name: 'Quality Reports', slug: 'ops-quality', color: '#10B981', icon: 'CheckCircle', sortOrder: 1, parentSlug: 'operations' },
-      { name: 'Inspection Reports', slug: 'ops-inspections', color: '#10B981', icon: 'Search', sortOrder: 2, parentSlug: 'operations' },
-      { name: 'Delivery Notes', slug: 'ops-delivery-notes', color: '#10B981', icon: 'Truck', sortOrder: 3, parentSlug: 'operations' },
-    ];
-
-    // Insert top-level first, collecting IDs for parent reference
-    const idMap = new Map<string, number>();
-
-    for (const cat of categories) {
-      const parentId = cat.parentSlug ? (idMap.get(cat.parentSlug) ?? null) : null;
-
-      const result = await client.query(
-        `INSERT INTO dms_document_categories
-           ("companyId", name, slug, "parentId", color, icon, "sortOrder", "isActive", "requiresApproval", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, NOW(), NOW())
-         ON CONFLICT ("companyId", slug) DO NOTHING
-         RETURNING id`,
-        [companyId, cat.name, cat.slug, parentId, cat.color, cat.icon, cat.sortOrder],
-      );
-
-      if (result.rows[0]) {
-        idMap.set(cat.slug, result.rows[0].id);
-      } else {
-        // Already existed — fetch its id for children
-        const existing = await client.query(
-          `SELECT id FROM dms_document_categories WHERE "companyId" = $1 AND slug = $2`,
-          [companyId, cat.slug],
-        );
-        if (existing.rows[0]) idMap.set(cat.slug, existing.rows[0].id);
-      }
-    }
-  }
 
   /**
    * Helper to append schema to database URL
