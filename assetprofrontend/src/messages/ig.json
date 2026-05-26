@@ -1,0 +1,20 @@
+{
+  "common": {
+    "save": "Chekwaa",
+    "cancel": "Kagbuo",
+    "delete": "Hichapụ",
+    "edit": "Dezie",
+    "create": "Mepụta",
+    "search": "Chọọ",
+    "loading": "Na-ebunye...",
+    "error": "Mperi mere",
+    "success": "Ọ gara ọma",
+    "confirm": "Kwenye",
+    "back": "Laaghachi",
+    "next": "Ọzọ",
+    "submit": "Zipu",
+    "close": "Mechie",
+    "yes": "Ee",
+    "no": "Mba"
+  }
+}

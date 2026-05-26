@@ -1,0 +1,20 @@
+{
+  "common": {
+    "save": "Fipamọ",
+    "cancel": "Fagilé",
+    "delete": "Pa rẹ",
+    "edit": "Ṣàtúnṣe",
+    "create": "Ṣẹdá",
+    "search": "Wá",
+    "loading": "Ń gbẹ́...",
+    "error": "Àṣìṣe kan wàyé",
+    "success": "Àṣeyọrí",
+    "confirm": "Jẹrìísí",
+    "back": "Padà",
+    "next": "Tókàn",
+    "submit": "Fi sílẹ̀",
+    "close": "Tì",
+    "yes": "Bẹ́ẹ̀ni",
+    "no": "Bẹ́ẹ̀kọ́"
+  }
+}

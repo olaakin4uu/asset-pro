@@ -30,6 +30,7 @@ import { brand } from '@/lib/brand';
 import { detectDashboardProfile } from './components/DashboardProfileDetector';
 import FundManagementDashboard from './components/FundManagementDashboard';
 import FleetManagementDashboard from './components/FleetManagementDashboard';
+import AssetManagementDashboard from './components/AssetManagementDashboard';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Dashboard' }];
 
@@ -515,7 +516,7 @@ export default function TenantDashboardPage() {
       ) : profile === 'fleet-management' ? (
         <FleetManagementDashboard />
       ) : (
-        <GeneralDashboard />
+        <AssetManagementDashboard />
       )}
     </TenantLayout>
   );

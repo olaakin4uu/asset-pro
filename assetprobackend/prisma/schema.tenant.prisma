@@ -10,7 +10,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ============================================================================
@@ -193,6 +192,11 @@ model Company {
 
   // Messages
   messages Message[]
+
+  // Bank reconciliations & withholding
+  bankReconciliations BankReconciliation[]
+  withholdingTaxes    WithholdingTax[]
+  pettyCashSettings   PettyCashSettings?
 
   // Assets
   assetClasses AssetClass[]

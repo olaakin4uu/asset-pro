@@ -1,0 +1,20 @@
+{
+  "common": {
+    "save": "Ajiye",
+    "cancel": "Soke",
+    "delete": "Share",
+    "edit": "Gyara",
+    "create": "Kirkira",
+    "search": "Nema",
+    "loading": "Ana lodawa...",
+    "error": "Kuskure ya faru",
+    "success": "Nasara",
+    "confirm": "Tabbatar",
+    "back": "Koma",
+    "next": "Na gaba",
+    "submit": "Aika",
+    "close": "Rufe",
+    "yes": "Eh",
+    "no": "A'a"
+  }
+}

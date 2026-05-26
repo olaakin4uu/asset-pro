@@ -137,7 +137,6 @@ export class AuthService {
       const userResult = await client.query(
         `SELECT u.id, u.email, u.name, u.password, u."companyId", u."branchId",
                 COALESCE(u."userType", 'EMPLOYEE') as "userType",
-                u."employeeId", u."customerId", u."supplierId", u."investorId",
                 COALESCE(u.locale, 'en') as locale,
                 c.name as "companyName"
          FROM users u
@@ -190,10 +189,6 @@ export class AuthService {
         companyId: user.companyId,
         companyName: user.companyName,
         branchId: user.branchId,
-        employeeId: user.employeeId,
-        customerId: user.customerId,
-        supplierId: user.supplierId,
-        investorId: user.investorId,
         locale: user.locale,
         permissions,
         type: 'tenant_user',
