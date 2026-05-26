@@ -1,0 +1,1450 @@
+// SalvagePro ERP - Central Database Schema
+// This schema contains models for the central (non-tenant) database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// WEBSITE SETTINGS
+// ============================================================================
+
+model WebsiteSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   @db.Text
+  group     String   @default("general")
+  type      String   @default("string") // string, json, boolean, number
+  isPublic  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([group])
+  @@index([isPublic])
+  @@map("website_settings")
+}
+
+// ============================================================================
+// PLANS & MODULES
+// ============================================================================
+
+model Plan {
+  id           Int      @id @default(autoincrement())
+  name         String
+  slug         String   @unique
+  description  String?  @db.Text
+  priceMonthly Decimal  @db.Decimal(10, 2)
+  priceYearly  Decimal  @db.Decimal(10, 2)
+  currency     String   @default("NGN")
+  features     Json     @default("[]")
+  maxUsers     Int      @default(5)
+  maxCompanies Int      @default(1)
+  maxBranches  Int      @default(1)
+  maxStorageGb Int      @default(5)
+  trialDays    Int      @default(30)
+  isActive     Boolean  @default(true)
+  isEnterprise Boolean  @default(false)
+  isPopular    Boolean  @default(false)
+  badgeText    String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  modules       PlanModule[]
+  subscriptions Subscription[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("plans")
+}
+
+model Module {
+  id           Int       @id @default(autoincrement())
+  name         String
+  slug         String    @unique
+  description  String?   @db.Text
+  category     String    @default("core") // core, financial, operations, hr, sales
+  isCore       Boolean   @default(false)
+  icon         String?
+  priceMonthly Decimal?  @db.Decimal(10, 2)
+  priceYearly  Decimal?  @db.Decimal(10, 2)
+  currency     String    @default("NGN")
+  isActive     Boolean   @default(true)
+  features     Json      @default("[]") // Legacy: JSON array of feature names
+  dependencies Json      @default("[]")
+  demoUrl      String?
+  releasedAt   DateTime?
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  plans               PlanModule[]
+  subscriptionModules SubscriptionModule[]
+  featureDefinitions  Feature[] // Granular feature definitions
+
+  @@index([category])
+  @@index([isActive])
+  @@map("modules")
+}
+
+model PlanModule {
+  id                Int      @id @default(autoincrement())
+  planId            Int
+  moduleId          Int
+  isIncluded        Boolean  @default(false)
+  isAvailableAddon  Boolean  @default(false)
+  addonPriceMonthly Decimal? @db.Decimal(10, 2)
+  addonPriceYearly  Decimal? @db.Decimal(10, 2)
+  createdAt         DateTime @default(now())
+
+  // Relations
+  plan               Plan                @relation(fields: [planId], references: [id], onDelete: Cascade)
+  module             Module              @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  planModuleFeatures PlanModuleFeature[]
+
+  @@unique([planId, moduleId])
+  @@map("plan_modules")
+}
+
+// ============================================================================
+// FEATURES (Granular Feature Control per Plan per Module)
+// ============================================================================
+
+model Feature {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  name        String
+  description String?  @db.Text
+  moduleId    Int
+  isCore      Boolean  @default(false) // Core features are always enabled when module is enabled
+  icon        String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  metadata    Json? // Additional feature configuration (limits, permissions, etc.)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  module             Module              @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  planModuleFeatures PlanModuleFeature[]
+
+  @@index([moduleId])
+  @@index([isActive])
+  @@map("features")
+}
+
+model PlanModuleFeature {
+  id           Int      @id @default(autoincrement())
+  planModuleId Int
+  featureId    Int
+  isEnabled    Boolean  @default(true)
+  limits       Json? // Feature-specific limits (e.g., { "maxEmployees": 50 })
+  createdAt    DateTime @default(now())
+
+  // Relations
+  planModule PlanModule @relation(fields: [planModuleId], references: [id], onDelete: Cascade)
+  feature    Feature    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@unique([planModuleId, featureId])
+  @@index([featureId])
+  @@map("plan_module_features")
+}
+
+// ============================================================================
+// CONTENT (FAQ, CMS)
+// ============================================================================
+
+model Faq {
+  id        Int      @id @default(autoincrement())
+  question  String
+  answer    String   @db.Text
+  category  String   @default("general")
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@map("faqs")
+}
+
+// ============================================================================
+// INQUIRIES
+// ============================================================================
+
+model ContactMessage {
+  id         Int       @id @default(autoincrement())
+  name       String
+  email      String
+  phone      String?
+  subject    String
+  message    String    @db.Text
+  status     String    @default("new") // new, read, replied, archived
+  ipAddress  String?
+  userAgent  String?   @db.Text
+  readAt     DateTime?
+  repliedAt  DateTime?
+  adminNotes String?   @db.Text
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([email])
+  @@map("contact_messages")
+}
+
+model EnterpriseQuoteRequest {
+  id              Int    @id @default(autoincrement())
+  referenceNumber String @unique
+
+  // Contact Information
+  companyName String
+  contactName String
+  email       String
+  phone       String?
+  jobTitle    String?
+  industry    String?
+  companySize String?
+
+  // Requirements
+  interestedModules Json?
+  expectedUsers     Int?
+  expectedCompanies Int?
+  requirements      String?  @db.Text
+  timeline          String?
+  budgetRangeMin    Decimal? @db.Decimal(15, 2)
+  budgetRangeMax    Decimal? @db.Decimal(15, 2)
+
+  // Status & Tracking
+  status    String  @default("pending") // pending, contacted, quoted, converted, declined, archived
+  ipAddress String?
+  userAgent String? @db.Text
+
+  // Admin response fields
+  assignedToId       Int?
+  adminNotes         String?  @db.Text
+  recommendedModules Json?
+  quotedPriceMonthly Decimal? @db.Decimal(15, 2)
+  quotedPriceYearly  Decimal? @db.Decimal(15, 2)
+  quoteMessage       String?  @db.Text
+
+  // Timestamps for tracking
+  readAt      DateTime?
+  respondedAt DateTime?
+  convertedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  assignedTo CentralAdmin? @relation("AssignedQuotes", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([email])
+  @@index([createdAt])
+  @@map("enterprise_quote_requests")
+}
+
+// ============================================================================
+// MULTI-TENANCY (Central Schema)
+// ============================================================================
+
+model Tenant {
+  id                     String    @id @default(cuid())
+  name                   String
+  slug                   String    @unique
+  email                  String    @unique
+  status                 String    @default("pending") // pending, provisioning, active, suspended, canceled, archived
+  schemaName             String    @unique
+  data                   Json?
+  partnerId              Int?
+  partnerReferralCode    String?
+  createdByPartnerUserId Int?
+  partnerAssignedAt      DateTime?
+  provisionedAt          DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  domains        Domain[]
+  subscription   Subscription?
+  errorLogs      TenantErrorLog[]
+  supportTickets SupportTicket[]
+  customDomains  TenantCustomDomain[] @relation("CustomDomains")
+  partner        Partner?             @relation("PartnerTenants", fields: [partnerId], references: [id], onDelete: SetNull)
+  aiTokenBalance AiTokenBalance?
+  instances      OnPremiseInstance[]
+  tenantBackups  TenantBackup[]
+
+  @@index([status])
+  @@index([partnerId])
+  @@index([partnerReferralCode])
+  @@map("tenants")
+}
+
+model Domain {
+  id        Int      @id @default(autoincrement())
+  tenantId  String
+  domain    String   @unique
+  isPrimary Boolean  @default(false)
+  isCustom  Boolean  @default(false)
+  sslStatus String   @default("pending") // pending, active, failed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("domains")
+}
+
+model Subscription {
+  id                        Int       @id @default(autoincrement())
+  tenantId                  String    @unique
+  planId                    Int
+  status                    String    @default("trial") // trial, active, past_due, cancelled, suspended, expired, pending_cancellation
+  billingCycle              String    @default("monthly") // monthly, yearly
+  usersCount                Int       @default(1)
+  trialEndsAt               DateTime?
+  currentPeriodStart        DateTime?
+  currentPeriodEnd          DateTime?
+  amount                    Decimal?  @db.Decimal(12, 2)
+  currency                  String    @default("NGN")
+  paymentMethod             String?
+  autoRenew                 Boolean   @default(true)
+  endsAt                    DateTime?
+  scheduledPlanId           Int?
+  paystackCustomerCode      String?
+  paystackSubscriptionCode  String?
+  paystackAuthorizationCode String?
+  cardLastFour              String?
+  cardBrand                 String?
+  cardExpMonth              Int?
+  cardExpYear               Int?
+  metadata                  Json?
+  cancelledAt               DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  // Relations
+  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan          Plan                        @relation(fields: [planId], references: [id])
+  modules       SubscriptionModule[]
+  changeHistory SubscriptionChangeHistory[]
+  invoices      SubscriptionInvoice[]
+
+  @@index([paystackCustomerCode])
+  @@index([paystackSubscriptionCode])
+  @@map("subscriptions")
+}
+
+model CentralAdmin {
+  id                     Int       @id @default(autoincrement())
+  email                  String    @unique
+  password               String
+  name                   String
+  role                   String    @default("admin") // super_admin, admin, support
+  isActive               Boolean   @default(true)
+  emailVerifiedAt        DateTime?
+  lastLoginAt            DateTime?
+  lastLoginIp            String?
+  twoFactorSecret        String?   @db.Text
+  twoFactorRecoveryCodes String?   @db.Text
+  twoFactorConfirmedAt   DateTime?
+  rememberToken          String?
+  resetToken             String?   @db.Text
+  resetTokenExpiry       DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+
+  // Relations
+  resolvedErrors  TenantErrorLog[]
+  createdPartners Partner[]                @relation("PartnerCreator")
+  announcements   TenantAnnouncement[]     @relation("AnnouncementCreator")
+  assignedTickets SupportTicket[]          @relation("AssignedTickets")
+  createdTickets  SupportTicket[]          @relation("CreatedTickets")
+  ticketReplies   SupportTicketReply[]     @relation("TicketReplies")
+  auditLogs       CentralAuditLog[]        @relation("AuditLogs")
+  assignedQuotes  EnterpriseQuoteRequest[] @relation("AssignedQuotes")
+
+  @@index([isActive])
+  @@index([email])
+  @@map("central_admins")
+}
+
+model TenantErrorLog {
+  id              Int       @id @default(autoincrement())
+  tenantId        String?
+  tenantName      String?
+  subdomain       String?
+  errorHash       String
+  exceptionClass  String
+  message         String    @db.Text
+  file            String?
+  line            Int?
+  url             String?
+  method          String?
+  routeName       String?
+  ipAddress       String?
+  userAgent       String?   @db.Text
+  userId          Int?
+  userEmail       String?
+  stackTrace      String?   @db.Text
+  requestData     Json?
+  context         Json?
+  slackNotified   Boolean   @default(false)
+  slackNotifiedAt DateTime?
+  occurrenceCount Int       @default(1)
+  firstOccurredAt DateTime
+  lastOccurredAt  DateTime
+  resolved        Boolean   @default(false)
+  resolvedAt      DateTime?
+  resolvedBy      Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  tenant   Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resolver CentralAdmin? @relation(fields: [resolvedBy], references: [id])
+
+  @@index([tenantId, errorHash])
+  @@index([resolved, createdAt])
+  @@index([lastOccurredAt])
+  @@map("tenant_error_logs")
+}
+
+model TenantAnnouncement {
+  id                     Int       @id @default(autoincrement())
+  title                  String
+  content                String    @db.Text
+  type                   String    @default("info") // info, warning, maintenance, feature, urgent
+  target                 String    @default("all") // all, specific, plan_based
+  targetTenantIds        Json? // Array of tenant IDs for specific targeting
+  targetPlanIds          Json? // Array of plan IDs for plan-based targeting
+  createdById            Int
+  publishAt              DateTime?
+  expiresAt              DateTime?
+  isActive               Boolean   @default(true)
+  requiresAcknowledgment Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  createdBy CentralAdmin @relation("AnnouncementCreator", fields: [createdById], references: [id])
+
+  @@index([isActive, publishAt, expiresAt])
+  @@map("tenant_announcements")
+}
+
+// ============================================================================
+// PARTNERS
+// ============================================================================
+
+model Partner {
+  id      Int     @id @default(autoincrement())
+  uuid    String  @unique @default(uuid())
+  name    String
+  slug    String  @unique
+  email   String  @unique
+  phone   String?
+  website String?
+  address String? @db.Text
+
+  // Branding
+  logoPath    String?
+  displayName String?
+
+  // Discount Configuration
+  discountType              String  @default("percentage") // percentage, fixed
+  discountValue             Decimal @default(0) @db.Decimal(10, 2)
+  discountAppliesToAllPlans Boolean @default(true)
+  discountPlanIds           Json?
+  discountDurationMonths    Int?
+
+  // Referral Settings
+  referralCode       String  @unique
+  referralCodeActive Boolean @default(true)
+
+  // Status
+  status           String    @default("pending") // pending, active, suspended, terminated, rejected
+  activatedAt      DateTime?
+  suspendedAt      DateTime?
+  suspensionReason String?
+
+  // Agreement
+  agreementStartDate DateTime? @db.Date
+  agreementEndDate   DateTime? @db.Date
+  notes              String?   @db.Text
+  maxTenants         Int?
+
+  // Notification Preferences
+  notifyOnNewClient       Boolean @default(true)
+  notifyOnClientCancelled Boolean @default(true)
+  notifyWeeklyDigest      Boolean @default(true)
+
+  // Metadata
+  createdById Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  // Relations
+  createdBy    CentralAdmin?        @relation("PartnerCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  users        PartnerUser[]
+  invitations  PartnerInvitation[]
+  activityLogs PartnerActivityLog[]
+  tenants      Tenant[]             @relation("PartnerTenants")
+
+  @@index([status])
+  @@index([referralCode])
+  @@map("partners")
+}
+
+model PartnerUser {
+  id          Int       @id @default(autoincrement())
+  partnerId   Int
+  email       String    @unique
+  password    String
+  name        String
+  phone       String?
+  role        String    @default("member") // owner, admin, member
+  status      String    @default("active") // active, inactive
+  lastLoginAt DateTime?
+  lastLoginIp String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  // Relations
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@map("partner_users")
+}
+
+model PartnerInvitation {
+  id         Int       @id @default(autoincrement())
+  partnerId  Int
+  email      String
+  role       String    @default("member")
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  // Relations
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@index([token])
+  @@map("partner_invitations")
+}
+
+model PartnerActivityLog {
+  id          Int      @id @default(autoincrement())
+  partnerId   Int
+  userId      Int?
+  action      String
+  description String?  @db.Text
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@index([action])
+  @@map("partner_activity_logs")
+}
+
+// ============================================================================
+// SUPPORT TICKETS
+// ============================================================================
+
+model SupportTicket {
+  id                 Int       @id @default(autoincrement())
+  ticketNumber       String    @unique
+  tenantId           String
+  subject            String
+  description        String    @db.Text
+  priority           String    @default("medium") // low, medium, high, urgent
+  status             String    @default("open") // open, in_progress, waiting_on_customer, resolved, closed
+  category           String    @default("other") // billing, technical, feature_request, account, other
+  assignedToId       Int?
+  createdByAdminId   Int?
+  tenantContactEmail String?
+  tenantContactName  String?
+  firstResponseAt    DateTime?
+  resolvedAt         DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo     CentralAdmin?        @relation("AssignedTickets", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdByAdmin CentralAdmin?        @relation("CreatedTickets", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  replies        SupportTicketReply[]
+
+  @@index([status, priority])
+  @@index([tenantId])
+  @@map("support_tickets")
+}
+
+model SupportTicketReply {
+  id              Int      @id @default(autoincrement())
+  supportTicketId Int
+  message         String   @db.Text
+  authorType      String   @default("admin") // admin, tenant
+  adminId         Int?
+  tenantUserEmail String?
+  tenantUserName  String?
+  isInternalNote  Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  // Relations
+  ticket SupportTicket @relation(fields: [supportTicketId], references: [id], onDelete: Cascade)
+  admin  CentralAdmin? @relation("TicketReplies", fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([supportTicketId])
+  @@map("support_ticket_replies")
+}
+
+// ============================================================================
+// CENTRAL HELP ARTICLES (shared across all tenants)
+// ============================================================================
+
+model CentralHelpCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  slug        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  icon        String?  @db.VarChar(10)
+  sortOrder   Int      @default(0)
+  parentId    Int?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  parent   CentralHelpCategory?  @relation("CentralHelpCategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children CentralHelpCategory[] @relation("CentralHelpCategoryParent")
+  articles CentralHelpArticle[]
+
+  @@index([parentId])
+  @@index([isActive, sortOrder])
+  @@map("central_help_categories")
+}
+
+model CentralHelpArticle {
+  id                Int       @id @default(autoincrement())
+  title             String    @db.VarChar(200)
+  slug              String    @unique @db.VarChar(200)
+  summary           String    @db.VarChar(500)
+  content           String    @db.Text
+  categoryId        Int
+  tags              Json?     @default("[]")
+  relatedArticleIds Json?     @default("[]")
+  status            String    @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
+  visibility        String    @default("PUBLIC") // PUBLIC, AUTHENTICATED, ADMIN_ONLY
+  moduleSlug        String?   @db.VarChar(50) // e.g. "inventory", "sales", "hr-payroll"
+  difficulty        String?   @db.VarChar(20) // beginner, intermediate, advanced
+  sortOrder         Int       @default(0)
+  author            String?   @db.VarChar(100)
+  publishedAt       DateTime?
+  isFeatured        Boolean   @default(false)
+  enableComments    Boolean   @default(true)
+  viewCount         Int       @default(0)
+  helpfulCount      Int       @default(0)
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  category CentralHelpCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([categoryId])
+  @@index([status, visibility])
+  @@index([isFeatured])
+  @@index([moduleSlug])
+  @@map("central_help_articles")
+}
+
+// ============================================================================
+// CENTRAL AUDIT LOG
+// ============================================================================
+
+model CentralAuditLog {
+  id         Int      @id @default(autoincrement())
+  adminId    Int
+  action     String // login, logout, tenant_view, tenant_suspend, impersonate, etc.
+  entityType String? // tenant, plan, admin, etc.
+  entityId   Int?
+  tenantId   String? // If action relates to specific tenant
+  oldValues  Json?
+  newValues  Json?
+  reason     String?  @db.Text
+  ipAddress  String?
+  userAgent  String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  // Relations
+  admin CentralAdmin @relation("AuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@map("central_audit_logs")
+}
+
+// ============================================================================
+// SUBSCRIPTION MODULES
+// ============================================================================
+
+model SubscriptionModule {
+  id              Int       @id @default(autoincrement())
+  subscriptionId  Int
+  moduleId        Int
+  status          String    @default("enabled") // enabled, disabled, trial, read_only
+  enabledAt       DateTime?
+  disabledAt      DateTime?
+  trialEndsAt     DateTime?
+  amount          Decimal   @default(0) @db.Decimal(10, 2)
+  isIncluded      Boolean   @default(false)
+  enabledFeatures String[] // Feature slugs enabled for this tenant's module
+  featureLimits   Json? // Custom feature limits override (e.g., { "employee": { "maxRecords": 100 } })
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  module       Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, moduleId])
+  @@index([status])
+  @@map("subscription_modules")
+}
+
+model SubscriptionChangeHistory {
+  id              Int      @id @default(autoincrement())
+  subscriptionId  Int
+  fromPlanId      Int?
+  toPlanId        Int?
+  changeType      String // upgrade, downgrade, new_subscription, cancellation
+  reason          String?  @db.Text
+  initiatedSource String? // admin, tenant, system
+  effectiveAt     DateTime
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  // Relations
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@map("subscription_change_histories")
+}
+
+model SubscriptionInvoice {
+  id                   Int       @id @default(autoincrement())
+  subscriptionId       Int
+  invoiceNumber        String    @unique
+  type                 String    @default("subscription") // subscription, addon, upgrade, proration, manual
+  status               String    @default("pending") // draft, pending, paid, failed, refunded, cancelled
+  subtotal             Decimal   @default(0) @db.Decimal(12, 2)
+  taxAmount            Decimal   @default(0) @db.Decimal(12, 2)
+  discountAmount       Decimal   @default(0) @db.Decimal(12, 2)
+  total                Decimal   @default(0) @db.Decimal(12, 2)
+  currency             String    @default("NGN")
+  billingPeriodStart   DateTime  @db.Date
+  billingPeriodEnd     DateTime  @db.Date
+  dueDate              DateTime
+  paidAt               DateTime?
+  paystackReference    String?
+  transactionReference String?
+  paymentReference     String?
+  paymentMethod        String?
+  refundedAt           DateTime?
+  refundAmount         Decimal?  @db.Decimal(12, 2)
+  lineItems            Json?
+  notes                String?   @db.Text
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceNumber])
+  @@index([status])
+  @@index([paystackReference])
+  @@index([transactionReference])
+  @@index([paymentReference])
+  @@index([subscriptionId, status])
+  @@map("subscription_invoices")
+}
+
+// ============================================================================
+// INFRASTRUCTURE & COSTS
+// ============================================================================
+
+model InfrastructureCost {
+  id            Int      @id @default(autoincrement())
+  provider      String   @default("digitalocean") // digitalocean, aws, etc.
+  resourceId    String
+  resourceType  String // droplet, database, spaces, etc.
+  name          String
+  amountUsd     Decimal  @db.Decimal(10, 2)
+  amountNgn     Decimal? @db.Decimal(15, 2)
+  billingPeriod String // YYYY-MM
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([provider, resourceId, billingPeriod])
+  @@index([billingPeriod])
+  @@map("infrastructure_costs")
+}
+
+model ExchangeRate {
+  id           Int       @id @default(autoincrement())
+  fromCurrency String    @default("USD")
+  toCurrency   String    @default("NGN")
+  rate         Decimal   @db.Decimal(15, 6)
+  source       String? // api, manual
+  validFrom    DateTime
+  validTo      DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([fromCurrency, toCurrency])
+  @@map("exchange_rates")
+}
+
+model MonthlyFinancialSummary {
+  id                  Int      @id @default(autoincrement())
+  month               String // YYYY-MM
+  mrr                 Decimal  @db.Decimal(15, 2) // Monthly Recurring Revenue
+  arr                 Decimal  @db.Decimal(15, 2) // Annual Recurring Revenue
+  activeSubscriptions Int
+  newSubscriptions    Int
+  churned             Int
+  upgrades            Int
+  downgrades          Int
+  totalRevenue        Decimal  @db.Decimal(15, 2)
+  infrastructureCost  Decimal  @db.Decimal(15, 2)
+  netRevenue          Decimal  @db.Decimal(15, 2)
+  currency            String   @default("NGN")
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([month])
+  @@map("monthly_financial_summaries")
+}
+
+// ============================================================================
+// TENANT CUSTOM DOMAINS
+// ============================================================================
+
+model TenantCustomDomain {
+  id                 Int       @id @default(autoincrement())
+  tenantId           String
+  domain             String    @unique
+  verificationStatus String    @default("pending") // pending, verified, failed
+  verificationToken  String?
+  dnsRecords         Json?
+  sslStatus          String    @default("pending") // pending, issued, failed, expired
+  sslIssuedAt        DateTime?
+  sslExpiresAt       DateTime?
+  isActive           Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  tenant Tenant                  @relation("CustomDomains", fields: [tenantId], references: [id], onDelete: Cascade)
+  logs   DomainVerificationLog[]
+
+  @@index([tenantId])
+  @@map("tenant_custom_domains")
+}
+
+model DomainVerificationLog {
+  id        Int      @id @default(autoincrement())
+  domainId  Int
+  action    String // verify_dns, issue_ssl, renew_ssl
+  status    String // success, failed
+  message   String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  // Relations
+  domain TenantCustomDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([domainId])
+  @@map("domain_verification_logs")
+}
+
+// ============================================================================
+// MODULE ANALYTICS & DISCOVERY
+// ============================================================================
+
+model ModuleUsageAnalytics {
+  id          Int       @id @default(autoincrement())
+  tenantId    String
+  moduleId    Int
+  activeUsers Int       @default(0)
+  totalUsers  Int       @default(0)
+  pageViews   Int       @default(0)
+  lastUsedAt  DateTime?
+  recordDate  DateTime  @db.Date
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenantId, moduleId, recordDate])
+  @@index([tenantId])
+  @@index([moduleId])
+  @@map("module_usage_analytics")
+}
+
+model TenantModuleDiscovery {
+  id           Int       @id @default(autoincrement())
+  tenantId     String
+  moduleId     Int
+  discoveredAt DateTime  @default(now())
+  clickedAt    DateTime?
+  interestedAt DateTime?
+
+  @@unique([tenantId, moduleId])
+  @@index([tenantId])
+  @@map("tenant_module_discoveries")
+}
+
+model ModuleAccessRequest {
+  id         Int       @id @default(autoincrement())
+  tenantId   String
+  moduleId   Int
+  status     String    @default("pending") // pending, approved, rejected
+  reason     String?   @db.Text
+  reviewedBy Int?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("module_access_requests")
+}
+
+// ============================================================================
+// WEBSITE PAGES (CMS)
+// ============================================================================
+
+model WebsitePage {
+  id              Int      @id @default(autoincrement())
+  slug            String   @unique
+  title           String
+  content         String?  @db.Text
+  metaTitle       String?
+  metaDescription String?  @db.Text
+  isPublished     Boolean  @default(true)
+  showInFooter    Boolean  @default(true)
+  showInNav       Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isPublished, sortOrder])
+  @@map("website_pages")
+}
+
+// ============================================================================
+// REGISTRATION STATE
+// ============================================================================
+
+model RegistrationState {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  companyName  String
+  subdomain    String
+  adminEmail   String
+  planSlug     String
+  status       String    @default("pending") // pending, processing, completed, failed
+  currentStep  Int       @default(0)
+  totalSteps   Int       @default(13)
+  stepMessage  String?
+  errorMessage String?
+  errorStep    Int?
+  redirectUrl  String?
+  data         Json?
+  expiresAt    DateTime
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status])
+  @@index([adminEmail])
+  @@map("registration_states")
+}
+
+// ============================================================================
+// AI TOKEN SYSTEM
+// ============================================================================
+
+model AiTokenBalance {
+  id             Int       @id @default(autoincrement())
+  tenantId       String    @unique
+  totalPurchased Int       @default(0)
+  totalUsed      Int       @default(0)
+  balance        Int       @default(0)
+  lastPurchaseAt DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchases AiTokenPurchase[]
+  usageLogs AiTokenUsageLog[]
+
+  @@map("ai_token_balances")
+}
+
+model AiTokenPurchase {
+  id               Int      @id @default(autoincrement())
+  tenantId         String
+  balanceId        Int
+  packageId        Int?
+  tokenAmount      Int
+  amountPaid       Decimal  @db.Decimal(12, 2)
+  currency         String   @default("NGN")
+  status           String   @default("completed") @db.VarChar(20) // pending | completed | failed
+  paymentMethod    String?
+  paymentReference String?
+  paystackRef      String?  @db.VarChar(255)
+  purchasedBy      Int?
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+
+  // Relations
+  balance AiTokenBalance @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([paystackRef])
+  @@map("ai_token_purchases")
+}
+
+model AiTokenUsageLog {
+  id               Int      @id @default(autoincrement())
+  tenantId         String
+  balanceId        Int
+  conversationUuid String?
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  totalTokens      Int      @default(0)
+  model            String
+  agentType        String?
+  userId           Int?
+  companyId        Int?
+  createdAt        DateTime @default(now())
+
+  // Relations
+  balance AiTokenBalance @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("ai_token_usage_logs")
+}
+
+model AiTokenPackage {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  tokenAmount Int
+  price       Decimal  @db.Decimal(12, 2)
+  currency    String   @default("NGN") @db.VarChar(10)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  isPopular   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ai_token_packages")
+}
+
+// ============================================================================
+// ON-PREMISE DEPLOYMENT & SYNC
+// ============================================================================
+
+enum SyncOperation {
+  INSERT
+  UPDATE
+  DELETE
+}
+
+enum SyncStatus {
+  pending
+  synced
+  failed
+  conflict
+  skipped
+}
+
+enum SyncDirection {
+  push
+  pull
+  full
+}
+
+enum SyncLogStatus {
+  success
+  partial
+  failed
+}
+
+enum ConflictResolution {
+  local_wins
+  cloud_wins
+  merged
+  pending
+}
+
+enum ConflictStrategy {
+  last_write_wins
+  on_premise_wins
+  cloud_wins
+  flag_for_review
+}
+
+enum ModuleOwnershipType {
+  on_premise_primary
+  cloud_primary
+  bidirectional
+}
+
+enum UpdateStatus {
+  checking
+  downloading
+  migrating
+  restarting
+  verifying
+  success
+  failed
+  rolled_back
+}
+
+enum BackupDestination {
+  local
+  s3
+  cloud
+}
+
+enum BackupStatus {
+  in_progress
+  completed
+  failed
+  expired
+  deleted
+}
+
+enum InstanceStatus {
+  online
+  offline
+  updating
+  error
+  provisioning
+}
+
+// Cloud-only: registry of all on-premise deployments
+model OnPremiseInstance {
+  id                Int            @id @default(autoincrement())
+  tenantId          String
+  tenant            Tenant         @relation(fields: [tenantId], references: [id])
+  instanceId        String         @unique // UUID assigned during setup
+  name              String // Human-readable name (e.g., "Lagos HQ")
+  version           String // Current software version
+  status            InstanceStatus @default(provisioning)
+  licenseKey        String         @unique
+  licenseExpiresAt  DateTime
+  lastHeartbeatAt   DateTime?
+  lastSyncAt        DateTime?
+  syncQueueDepth    Int            @default(0)
+  diskUsagePercent  Float          @default(0)
+  updatePolicy      String         @default("auto") // auto, manual, critical-only
+  updateWindowStart String? // "02:00"
+  updateWindowEnd   String? // "05:00"
+  pinnedVersion     String?
+  gitBranch         String         @default("release/stable")
+  containerHealth   Json? // { backend: "healthy", frontend: "healthy", ... }
+  sitePrefixCode    String // "HQ", "LG", etc.
+
+  heartbeats       InstanceHeartbeat[]
+  moduleOwnerships ModuleOwnership[]
+  syncLogs         SyncLog[]
+  updateLogs       UpdateLog[]
+  backupRecords    BackupRecord[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([tenantId])
+  @@map("on_premise_instances")
+}
+
+// Cloud-only: time-series health data from on-premise instances
+model InstanceHeartbeat {
+  id                 Int               @id @default(autoincrement())
+  instanceId         Int
+  instance           OnPremiseInstance @relation(fields: [instanceId], references: [id])
+  version            String
+  cpuUsagePercent    Float
+  memoryUsagePercent Float
+  diskUsagePercent   Float
+  syncQueueDepth     Int
+  containerHealth    Json // { backend: "healthy", frontend: "unhealthy", ... }
+  uptimeSeconds      Int
+  createdAt          DateTime          @default(now())
+
+  @@index([instanceId, createdAt])
+  @@map("instance_heartbeats")
+}
+
+// Both: queue of local changes pending push to cloud/remote
+model SyncOutbox {
+  id              BigInt        @id @default(autoincrement())
+  tenantId        String
+  tableName       String
+  recordId        String // Original record ID (could be int or UUID)
+  operation       SyncOperation
+  payload         Json // Full record data at time of change
+  previousPayload Json? // Previous state (for conflict detection)
+  timestamp       DateTime      @default(now())
+  status          SyncStatus    @default(pending)
+  retryCount      Int           @default(0)
+  lastError       String?
+  syncedAt        DateTime?
+  batchId         String? // Groups records from the same sync cycle
+  createdAt       DateTime      @default(now())
+
+  @@index([status, timestamp])
+  @@index([tenantId, tableName])
+  @@index([batchId])
+  @@map("sync_outbox")
+}
+
+// Both: queue of incoming changes from cloud/remote
+model SyncInbox {
+  id               BigInt        @id @default(autoincrement())
+  tenantId         String
+  tableName        String
+  recordId         String
+  operation        SyncOperation
+  payload          Json
+  sourceInstanceId String? // Which instance originated this change
+  timestamp        DateTime // When the change was originally made
+  status           SyncStatus    @default(pending)
+  appliedAt        DateTime?
+  error            String?
+  createdAt        DateTime      @default(now())
+
+  @@index([status, timestamp])
+  @@index([tenantId, tableName])
+  @@map("sync_inbox")
+}
+
+// Both: records of detected sync conflicts
+model SyncConflict {
+  id           Int                @id @default(autoincrement())
+  tenantId     String
+  tableName    String
+  recordId     String
+  localPayload Json
+  cloudPayload Json
+  resolution   ConflictResolution @default(pending)
+  resolvedBy   Int? // userId who resolved (null if auto-resolved)
+  resolvedAt   DateTime?
+  autoResolved Boolean            @default(false)
+  strategyUsed ConflictStrategy?
+  createdAt    DateTime           @default(now())
+
+  @@index([tenantId, resolution])
+  @@map("sync_conflicts")
+}
+
+// Both: audit log of sync operations
+model SyncLog {
+  id                Int                @id @default(autoincrement())
+  tenantId          String
+  instanceId        Int?
+  instance          OnPremiseInstance? @relation(fields: [instanceId], references: [id])
+  syncId            String             @unique // UUID for this sync cycle
+  direction         SyncDirection
+  startedAt         DateTime
+  completedAt       DateTime?
+  status            SyncLogStatus      @default(success)
+  recordsPushed     Int                @default(0)
+  recordsPulled     Int                @default(0)
+  conflictsDetected Int                @default(0)
+  conflictsResolved Int                @default(0)
+  errors            Json? // Array of error details
+  durationMs        Int?
+  bytesTransferred  BigInt?
+  createdAt         DateTime           @default(now())
+
+  @@index([tenantId, startedAt])
+  @@index([instanceId, startedAt])
+  @@map("sync_logs")
+}
+
+// On-premise-only: tracks sync position per table
+model SyncCursor {
+  id           Int       @id @default(autoincrement())
+  tableName    String    @unique
+  lastPulledAt DateTime?
+  lastPushedAt DateTime?
+  lastPulledId String?
+  updatedAt    DateTime  @updatedAt
+
+  @@map("sync_cursors")
+}
+
+// Both: per-module sync configuration
+model ModuleOwnership {
+  id               Int                 @id @default(autoincrement())
+  tenantId         String
+  instanceId       Int?
+  instance         OnPremiseInstance?  @relation(fields: [instanceId], references: [id])
+  moduleSlug       String
+  ownership        ModuleOwnershipType @default(bidirectional)
+  conflictStrategy ConflictStrategy    @default(last_write_wins)
+  syncEnabled      Boolean             @default(true)
+  lastSyncAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([tenantId, instanceId, moduleSlug])
+  @@map("module_ownership")
+}
+
+// Both: software update history
+model UpdateLog {
+  id             Int                @id @default(autoincrement())
+  instanceId     Int?
+  instance       OnPremiseInstance? @relation(fields: [instanceId], references: [id])
+  fromVersion    String
+  toVersion      String
+  status         UpdateStatus
+  migrationsRun  Json? // ["20260301_add_sync_tables", ...]
+  startedAt      DateTime
+  completedAt    DateTime?
+  durationMs     Int?
+  rollbackReason String?
+  dbSnapshotPath String?
+  error          String?
+  createdAt      DateTime           @default(now())
+
+  @@index([instanceId, startedAt])
+  @@map("update_logs")
+}
+
+// Both: backup metadata
+model BackupRecord {
+  id              Int                @id @default(autoincrement())
+  instanceId      Int?
+  instance        OnPremiseInstance? @relation(fields: [instanceId], references: [id])
+  filename        String
+  sizeBytes       BigInt
+  checksum        String // SHA-256
+  destination     BackupDestination
+  destinationPath String
+  encrypted       Boolean            @default(true)
+  status          BackupStatus       @default(in_progress)
+  expiresAt       DateTime
+  restoredAt      DateTime?
+  createdAt       DateTime           @default(now())
+
+  @@index([instanceId, createdAt])
+  @@map("backup_records")
+}
+
+// Tenant-level backup for per-schema backup/restore
+model TenantBackup {
+  id           Int           @id @default(autoincrement())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schemaName   String
+  filename     String        @unique
+  sizeBytes    BigInt        @default(0)
+  checksum     String?
+  status       BackupStatus  @default(in_progress)
+  notes        String?
+  createdBy    String?
+  isScheduled    Boolean       @default(false)
+  restoreStatus  String?       // PENDING_APPROVAL, APPROVED, REJECTED, null (not a restore request)
+  restoreTarget  String?       // Target tenant ID for restore
+  requestedById  Int?          // User who requested restore
+  restoredAt     DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([status])
+  @@map("tenant_backups")
+}
+
+// ============================================================================
+// SMS / WHATSAPP INBOUND REPORTING (Sprint 2B)
+// ============================================================================
+// Inbound messages from rural farm managers who SMS/WhatsApp short commands
+// (e.g. "M FK001 2" = 2 deaths on flock FK001) to record livestock events
+// when they have no smartphone or no data signal. Logged centrally because
+// the sender's tenant is unknown until we resolve their phone number.
+
+model SmsInboundMessage {
+  id                Int       @id @default(autoincrement())
+  provider          String    @default("termii") // termii, twilio, msg91...
+  providerMessageId String    @unique // Idempotency key from provider
+  channel           String    @default("sms") // sms, whatsapp
+  fromPhone         String
+  toPhone           String?
+  rawBody           String    @db.Text
+  receivedAt        DateTime  @default(now())
+
+  // Resolution (nullable — set once we match phone → tenant user)
+  tenantId          String?
+  tenantSchema      String?
+  userId            Int?
+  companyId         Int?
+
+  // Parsed command
+  command           String? // MORTALITY, FEED, EGG, WEIGHT, HELP, UNKNOWN
+  commandArgs       Json?
+
+  // Lifecycle: received → parsed → dispatched → replied | failed
+  status            String    @default("received")
+  errorMessage      String?   @db.Text
+
+  // Outbound reply (what we SMS'd back to the farmer)
+  replyBody         String?   @db.Text
+  replySentAt       DateTime?
+  replyProviderId   String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([fromPhone, receivedAt])
+  @@index([status, receivedAt])
+  @@map("sms_inbound_messages")
+}
