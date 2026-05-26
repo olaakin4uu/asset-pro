@@ -656,18 +656,8 @@ export class BatchImportService {
   // =========================================================================
 
   /**
-   * Resolve the requester identifier to an employee row. Accepts any of:
-   *   - the linked user's login email   (users.email)
-   *   - the employee's personal email   (employees.personalEmail)
-   *   - the employee code               (employees.employeeCode)
-   *   - the staff ID                    (employees.staffId)
-   *   - the full name                   (firstName + ' ' + lastName)
-   *
-   * Originally keyed on a non-existent `employees.email` column; the real
-   * schema separates login email (on users) from personal email (on
-   * employees). Non-technical users also rarely know their colleagues'
-   * emails off the top of their head, so accepting codes / staff IDs /
-   * names makes the CSV less fragile in practice.
+   * Resolve the requester identifier to a user row by email or name.
+   * AssetPro has no employees table — requester is identified by user login email or display name.
    */
   private async resolveEmployeeByEmail(
     companyId: number,
@@ -676,18 +666,10 @@ export class BatchImportService {
     const needle = identifier.trim();
     if (!needle) return null;
     const row = await this.tenantPrisma.queryOne<{ id: number; name: string }>(
-      `SELECT e.id, e."firstName" || ' ' || e."lastName" AS name
-         FROM employees e
-         LEFT JOIN users u ON u."employeeId" = e.id
-        WHERE e."companyId" = $1
-          AND e."deletedAt" IS NULL
-          AND (
-            LOWER(u.email) = LOWER($2)
-            OR LOWER(e."personalEmail") = LOWER($2)
-            OR e."employeeCode" = $2
-            OR e."staffId" = $2
-            OR LOWER(e."firstName" || ' ' || e."lastName") = LOWER($2)
-          )
+      `SELECT u.id, u.name
+         FROM users u
+        WHERE u."companyId" = $1
+          AND (LOWER(u.email) = LOWER($2) OR LOWER(u.name) = LOWER($2))
         LIMIT 1`,
       [companyId, needle],
     );

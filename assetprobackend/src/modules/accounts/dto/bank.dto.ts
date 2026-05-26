@@ -113,13 +113,6 @@ export class CreateBankDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-
-  @ApiPropertyOptional({ description: 'Authorized employee IDs to set on create' })
-  @IsArray()
-  @IsOptional()
-  @IsInt({ each: true })
-  @Type(() => Number)
-  authorizedEmployeeIds?: number[];
 }
 
 export class UpdateBankDto {
@@ -222,13 +215,6 @@ export class UpdateBankDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-
-  @ApiPropertyOptional({ description: 'Authorized employee IDs to sync' })
-  @IsArray()
-  @IsOptional()
-  @IsInt({ each: true })
-  @Type(() => Number)
-  authorizedEmployeeIds?: number[];
 }
 
 export class BankTransferDto {

@@ -2,7 +2,6 @@ export * from './account.dto';
 export * from './journal-entry.dto';
 export * from './fiscal-year.dto';
 export * from './bank.dto';
-export * from './bank-authorization.dto';
 export * from './report.dto';
 // Export only non-conflicting types from financial-reports.dto
 export {

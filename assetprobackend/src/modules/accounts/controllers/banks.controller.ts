@@ -21,9 +21,6 @@ import {
   CreateBankReconciliationDto,
   UpdateBankReconciliationDto,
   BankQueryDto,
-  CreateBankAuthorizationDto,
-  UpdateBankAuthorizationDto,
-  BankAuthorizationQueryDto,
   CreateBankTransferDto,
   UpdateBankTransferDto,
   BankTransferQueryDto,
@@ -86,13 +83,6 @@ export class BanksController {
   ) {
     await this.banksService.deleteBank(user.companyId, id);
     return { message: 'Bank deleted successfully' };
-  }
-
-  @Get('authorized')
-  @ApiOperation({ summary: 'Get banks authorized for current user' })
-  @ApiResponse({ status: 200, description: 'List of authorized banks' })
-  async getAuthorizedBanks(@CurrentUser() user: AuthUser) {
-    return this.banksService.getAuthorizedBanks(user.companyId, user.id);
   }
 
   @Get('cash-accounts')
@@ -202,67 +192,6 @@ export class BanksController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.banksService.findBankById(user.companyId, id);
-  }
-
-  // ============================================================================
-  // BANK AUTHORIZATIONS
-  // ============================================================================
-
-  @Post(':bankId/authorizations')
-  @ApiOperation({ summary: 'Create bank authorization' })
-  @ApiResponse({ status: 201, description: 'Authorization created successfully' })
-  @RequireFeature('accounts', 'accounts.banks')
-  async createAuthorization(
-    @CurrentUser() user: AuthUser,
-    @Param('bankId', ParseIntPipe) bankId: number,
-    @Body() dto: CreateBankAuthorizationDto,
-  ) {
-    dto.bankId = bankId;
-    return this.banksService.createAuthorization(user.companyId, dto);
-  }
-
-  @Put('authorizations/:id')
-  @ApiOperation({ summary: 'Update bank authorization' })
-  @ApiResponse({ status: 200, description: 'Authorization updated successfully' })
-  @RequireFeature('accounts', 'accounts.banks')
-  async updateAuthorization(
-    @CurrentUser() user: AuthUser,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateBankAuthorizationDto,
-  ) {
-    return this.banksService.updateAuthorization(user.companyId, id, dto);
-  }
-
-  @Delete('authorizations/:id')
-  @ApiOperation({ summary: 'Delete bank authorization' })
-  @ApiResponse({ status: 200, description: 'Authorization deleted successfully' })
-  @RequireFeature('accounts', 'accounts.banks')
-  async deleteAuthorization(
-    @CurrentUser() user: AuthUser,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    await this.banksService.deleteAuthorization(user.companyId, id);
-    return { message: 'Authorization deleted successfully' };
-  }
-
-  @Get(':bankId/authorizations')
-  @ApiOperation({ summary: 'Get authorizations for a bank' })
-  @ApiResponse({ status: 200, description: 'List of authorizations' })
-  async getAuthorizationsByBank(
-    @CurrentUser() user: AuthUser,
-    @Param('bankId', ParseIntPipe) bankId: number,
-  ) {
-    return this.banksService.findAuthorizationsByBank(user.companyId, bankId);
-  }
-
-  @Get('authorizations/employee/:employeeId')
-  @ApiOperation({ summary: 'Get authorizations for an employee' })
-  @ApiResponse({ status: 200, description: 'List of authorizations' })
-  async getAuthorizationsByEmployee(
-    @CurrentUser() user: AuthUser,
-    @Param('employeeId', ParseIntPipe) employeeId: number,
-  ) {
-    return this.banksService.findAuthorizationsByEmployee(user.companyId, employeeId);
   }
 
   // ============================================================================

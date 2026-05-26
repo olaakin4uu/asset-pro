@@ -1,8 +1,9 @@
-// SalvagePro ERP - Central Database Schema
+// AssetPro — Central Database Schema
 // This schema contains models for the central (non-tenant) database
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {

@@ -256,12 +256,9 @@ export class ExpenseRequestService {
 
     // For rejected or pending edits, only the original requester (or Super
     // Admin) may change the content.
+    // In AssetPro, requesterId stores the userId directly (no employees table).
     if (!superAdminOverride && (request.status === 'rejected' || request.status === 'pending') && userId) {
-      const requesterUser = await this.tenantPrisma.queryOne<{ userId: number }>(
-        `SELECT u.id AS "userId" FROM users u JOIN employees e ON e.id = u."employeeId" WHERE e.id = $1 LIMIT 1`,
-        [request.requesterId],
-      );
-      if (requesterUser && requesterUser.userId !== userId) {
+      if (request.requesterId && request.requesterId !== userId) {
         const isSuperAdmin = await this.tenantPrisma.queryOne<{ id: number }>(
           `SELECT ur."roleId" AS id FROM user_roles ur JOIN roles r ON r.id = ur."roleId" WHERE ur."userId" = $1 AND r.name = 'Super Admin' LIMIT 1`,
           [userId],
@@ -917,53 +914,12 @@ export class ExpenseRequestService {
       });
     }
 
-    // Auto-activate linked employee loan if this expense request was created from a loan application
-    try {
-      await this.activateLinkedLoan(companyId, requestId, request.requestNumber, userId);
-    } catch (err) {
-      this.logger.warn(`Failed to auto-activate linked loan for ER ${request.requestNumber}: ${err}`);
-    }
-
     // Fleet cost sync — fire-and-forget (never blocks payment)
     this.applyFleetCostFromExpense(companyId, requestId).catch((err) => {
       this.logger.warn(`Fleet cost sync failed for ER ${request.requestNumber}: ${err}`);
     });
 
     return this.findById(companyId, requestId);
-  }
-
-  /**
-   * Auto-activate a linked employee loan when its expense request is paid.
-   * Finds the loan by matching applicationNotes that contain the expense request ID,
-   * then sets the loan status to APPROVED → ACTIVE and generates the repayment schedule.
-   */
-  private async activateLinkedLoan(companyId: number, expenseRequestId: number, requestNumber: string, userId: number): Promise<void> {
-    // Find loan linked to this expense request
-    const loan = await this.tenantPrisma.queryOne<{ id: number; tenureMonths: number; monthlyDeduction: string; deductionStartDate: string; totalAmount: string }>(
-      `SELECT id, "tenureMonths", "monthlyDeduction", "deductionStartDate", "totalAmount"
-       FROM employee_loans
-       WHERE "companyId" = $1 AND "applicationNotes" LIKE $2 AND status IN ('DRAFT', 'PENDING')
-       LIMIT 1`,
-      [companyId, `%ID: ${expenseRequestId}%`],
-    );
-
-    if (!loan) return; // No linked loan
-
-    // Calculate deduction dates
-    const startDate = loan.deductionStartDate ? new Date(loan.deductionStartDate) : new Date();
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + loan.tenureMonths);
-
-    // Update loan to ACTIVE
-    await this.tenantPrisma.update('employee_loans', loan.id, {
-      status: 'ACTIVE',
-      approvalDate: new Date(),
-      disbursementDate: new Date(),
-      deductionStartDate: startDate,
-      deductionEndDate: endDate,
-    });
-
-    this.logger.log(`Loan #${loan.id} auto-activated after expense request ${requestNumber} was paid`);
   }
 
   /**
@@ -1143,11 +1099,10 @@ export class ExpenseRequestService {
   async findById(companyId: number, requestId: number): Promise<ExpenseRequest> {
     const request = await this.tenantPrisma.queryOne<ExpenseRequest>(
       `SELECT er.*,
-         COALESCE(e."firstName" || ' ' || COALESCE(e."lastName", ''), er."requesterName") as "requesterName",
+         er."requesterName" as "requesterName",
          ea.name as "expenseAccountName", ea.code as "expenseAccountCode",
          b."bankName", b."accountNumber" as "bankAccountNumber"
        FROM expense_requests er
-       LEFT JOIN employees e ON e.id = er."requesterId"
        LEFT JOIN ifrs_accounts ea ON ea.id = er."expenseAccountId"
        LEFT JOIN banks b ON b.id = er."bankAccountId"
        WHERE er.id = $1 AND er."companyId" = $2 AND er."deletedAt" IS NULL`,
@@ -1262,7 +1217,7 @@ export class ExpenseRequestService {
     }
     if (search) {
       conditions.push(
-        `(er."requestNumber" ILIKE $${idx} OR er.description ILIKE $${idx} OR (e."firstName" || ' ' || e."lastName") ILIKE $${idx})`,
+        `(er."requestNumber" ILIKE $${idx} OR er.description ILIKE $${idx} OR er."requesterName" ILIKE $${idx})`,
       );
       params.push(`%${search}%`);
       idx++;
@@ -1280,7 +1235,6 @@ export class ExpenseRequestService {
 
     const countResult = await this.tenantPrisma.queryOne<{ count: string }>(
       `SELECT COUNT(*) as count FROM expense_requests er
-       LEFT JOIN employees e ON e.id = er."requesterId"
        WHERE ${whereClause}`,
       params,
     );
@@ -1289,11 +1243,10 @@ export class ExpenseRequestService {
 
     const data = await this.tenantPrisma.query<ExpenseRequest>(
       `SELECT er.*,
-         COALESCE(e."firstName" || ' ' || COALESCE(e."lastName", ''), er."requesterName") as "requesterName",
+         er."requesterName" as "requesterName",
          pending_step."stepName" as "pendingStepName",
          pending_step."roleName" as "pendingRoleName"
        FROM expense_requests er
-       LEFT JOIN employees e ON e.id = er."requesterId"
        LEFT JOIN LATERAL (
          SELECT pafs.name as "stepName",
            COALESCE(
@@ -1395,14 +1348,8 @@ export class ExpenseRequestService {
         throw new ForbiddenException('Invalid approver configuration for this step');
       }
 
-      const employee = await this.tenantPrisma.queryOne<{ id: number }>(
-        `SELECT e.id FROM employees e
-         JOIN users u ON u."employeeId" = e.id
-         WHERE u.id = $1 AND e."companyId" = $2`,
-        [userId, companyId],
-      );
-
-      if (!employee || !employeesData.ids.includes(employee.id)) {
+      // In AssetPro (no employees table), match by userId directly
+      if (!employeesData.ids.includes(userId)) {
         throw new ForbiddenException('You are not authorized to approve this step (employee mismatch)');
       }
     }
@@ -1687,12 +1634,9 @@ export class ExpenseRequestService {
       throw new BadRequestException('Only rejected requests can be resubmitted');
     }
 
-    // Only the original requester can resubmit (or Super Admin)
-    const requesterUser = await this.tenantPrisma.queryOne<{ userId: number }>(
-      `SELECT u.id AS "userId" FROM users u JOIN employees e ON e.id = u."employeeId" WHERE e.id = $1 LIMIT 1`,
-      [request.requesterId],
-    );
-    if (requesterUser && requesterUser.userId !== userId) {
+    // Only the original requester can resubmit (or Super Admin).
+    // In AssetPro, requesterId stores the userId directly (no employees table).
+    if (request.requesterId && request.requesterId !== userId) {
       const isSuperAdmin = await this.tenantPrisma.queryOne<{ id: number }>(
         `SELECT ur."roleId" AS id FROM user_roles ur JOIN roles r ON r.id = ur."roleId" WHERE ur."userId" = $1 AND r.name = 'Super Admin' LIMIT 1`,
         [userId],

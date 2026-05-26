@@ -9,9 +9,6 @@ import {
   CreateBankReconciliationDto,
   UpdateBankReconciliationDto,
   BankQueryDto,
-  CreateBankAuthorizationDto,
-  UpdateBankAuthorizationDto,
-  BankAuthorizationQueryDto,
   CreateBankTransferDto,
   UpdateBankTransferDto,
   BankTransferQueryDto,
@@ -110,21 +107,6 @@ export interface BankReconciliation {
   updatedAt: Date;
 }
 
-export interface BankAuthorization {
-  id: number;
-  bankId: number;
-  employeeId: number;
-  employeeName?: string;
-  bankName?: string;
-  canView: boolean;
-  canDeposit: boolean;
-  canWithdraw: boolean;
-  canTransfer: boolean;
-  maxAmount: number | null;
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 @Injectable()
 export class BanksService {
@@ -187,11 +169,6 @@ export class BanksService {
       await this.postOpeningBalanceJournal(companyId, bank, dto.openingBalance!, dto.openingBalanceDate || null, dto.openingBalanceExchangeRate);
     }
 
-    // Sync authorized employees if provided
-    if (dto.authorizedEmployeeIds && dto.authorizedEmployeeIds.length > 0) {
-      await this.syncBankAuthorizations(bank.id, dto.authorizedEmployeeIds);
-    }
-
     return bank;
   }
 
@@ -250,11 +227,6 @@ export class BanksService {
         dto.openingBalanceDate || (bank.openingBalanceDate ? String(bank.openingBalanceDate) : null),
         dto.openingBalanceExchangeRate,
       );
-    }
-
-    // Sync authorized employees if provided
-    if (dto.authorizedEmployeeIds !== undefined) {
-      await this.syncBankAuthorizations(bankId, dto.authorizedEmployeeIds);
     }
 
     return result;
@@ -454,15 +426,6 @@ export class BanksService {
     };
   }
 
-  // ============================================================================
-  // BANK AUTHORIZATIONS
-  // ============================================================================
-
-  /**
-   * Sync authorized employees for a bank. Removes existing authorizations
-   * not in the list and adds new ones.
-   */
-
   // ==========================================================================
   // POST OPENING BALANCE → GL JOURNAL ENTRY (DR Bank, CR Opening Balances Equity)
   // ==========================================================================
@@ -598,231 +561,6 @@ export class BanksService {
       this.logger.error(`GL FAILED for bank opening balance #${bank.id}: ${msg}`, err instanceof Error ? err.stack : '');
       throw new BadRequestException(`Bank created but GL posting failed for opening balance: ${msg}. Check GL account configuration.`);
     }
-  }
-
-  private async syncBankAuthorizations(bankId: number, employeeIds: number[]): Promise<void> {
-    // Get existing authorizations
-    const existing = await this.tenantPrisma.query<{ id: number; employeeId: number }>(
-      `SELECT id, "employeeId" FROM bank_authorizations WHERE "bankId" = $1`,
-      [bankId],
-    );
-
-    const existingEmpIds = existing.map((a) => a.employeeId);
-    const toAdd = employeeIds.filter((id) => !existingEmpIds.includes(id));
-    const toRemove = existing.filter((a) => !employeeIds.includes(a.employeeId));
-
-    // Remove unauthorized
-    for (const auth of toRemove) {
-      await this.tenantPrisma.query(
-        `DELETE FROM bank_authorizations WHERE id = $1`,
-        [auth.id],
-      );
-    }
-
-    // Add new authorizations
-    for (const empId of toAdd) {
-      await this.tenantPrisma.insert('bank_authorizations', {
-        bankId,
-        employeeId: empId,
-        canView: true,
-        canDeposit: false,
-        canWithdraw: false,
-        canTransfer: false,
-        isActive: true,
-      });
-    }
-  }
-
-  async createAuthorization(
-    companyId: number,
-    dto: CreateBankAuthorizationDto,
-  ): Promise<BankAuthorization> {
-    // Verify bank belongs to company
-    await this.findBankById(companyId, dto.bankId);
-
-    // Verify employee exists
-    const employee = await this.tenantPrisma.queryOne<{ id: number }>(
-      `SELECT id FROM employees WHERE id = $1 AND "companyId" = $2`,
-      [dto.employeeId, companyId],
-    );
-    if (!employee) {
-      throw new NotFoundException('Employee not found');
-    }
-
-    // Check for existing authorization
-    const existing = await this.tenantPrisma.queryOne<BankAuthorization>(
-      `SELECT * FROM bank_authorizations WHERE "bankId" = $1 AND "employeeId" = $2`,
-      [dto.bankId, dto.employeeId],
-    );
-    if (existing) {
-      throw new BadRequestException('Authorization already exists for this employee and bank');
-    }
-
-    return this.tenantPrisma.insert<BankAuthorization>('bank_authorizations', {
-      bankId: dto.bankId,
-      employeeId: dto.employeeId,
-      canView: dto.canView ?? true,
-      canDeposit: dto.canDeposit ?? false,
-      canWithdraw: dto.canWithdraw ?? false,
-      canTransfer: dto.canTransfer ?? false,
-      maxAmount: dto.maxAmount || null,
-      isActive: dto.isActive ?? true,
-    });
-  }
-
-  async updateAuthorization(
-    companyId: number,
-    authId: number,
-    dto: UpdateBankAuthorizationDto,
-  ): Promise<BankAuthorization> {
-    const auth = await this.findAuthorizationById(authId);
-
-    // Verify bank belongs to company
-    await this.findBankById(companyId, auth.bankId);
-
-    const updateData: Record<string, any> = {};
-    if (dto.canView !== undefined) updateData.canView = dto.canView;
-    if (dto.canDeposit !== undefined) updateData.canDeposit = dto.canDeposit;
-    if (dto.canWithdraw !== undefined) updateData.canWithdraw = dto.canWithdraw;
-    if (dto.canTransfer !== undefined) updateData.canTransfer = dto.canTransfer;
-    if (dto.maxAmount !== undefined) updateData.maxAmount = dto.maxAmount;
-    if (dto.isActive !== undefined) updateData.isActive = dto.isActive;
-
-    if (Object.keys(updateData).length === 0) {
-      return auth;
-    }
-
-    const updated = await this.tenantPrisma.update<BankAuthorization>(
-      'bank_authorizations',
-      authId,
-      updateData,
-    );
-
-    if (!updated) {
-      throw new NotFoundException('Bank authorization not found');
-    }
-
-    return updated;
-  }
-
-  async deleteAuthorization(companyId: number, authId: number): Promise<void> {
-    const auth = await this.findAuthorizationById(authId);
-    await this.findBankById(companyId, auth.bankId);
-
-    await this.tenantPrisma.query(
-      `DELETE FROM bank_authorizations WHERE id = $1`,
-      [authId],
-    );
-  }
-
-  async findAuthorizationById(authId: number): Promise<BankAuthorization> {
-    const auth = await this.tenantPrisma.queryOne<BankAuthorization>(
-      `SELECT * FROM bank_authorizations WHERE id = $1`,
-      [authId],
-    );
-
-    if (!auth) {
-      throw new NotFoundException('Bank authorization not found');
-    }
-
-    return auth;
-  }
-
-  async findAuthorizationsByBank(
-    companyId: number,
-    bankId: number,
-  ): Promise<BankAuthorization[]> {
-    await this.findBankById(companyId, bankId);
-
-    return this.tenantPrisma.query<BankAuthorization>(
-      `SELECT ba.*,
-         e."firstName" || ' ' || e."lastName" as "employeeName"
-       FROM bank_authorizations ba
-       JOIN employees e ON e.id = ba."employeeId"
-       WHERE ba."bankId" = $1 AND ba."isActive" = true
-       ORDER BY e."firstName" ASC`,
-      [bankId],
-    );
-  }
-
-  async findAuthorizationsByEmployee(
-    companyId: number,
-    employeeId: number,
-  ): Promise<BankAuthorization[]> {
-    return this.tenantPrisma.query<BankAuthorization>(
-      `SELECT ba.*,
-         b.name as "bankName", b."accountNumber"
-       FROM bank_authorizations ba
-       JOIN banks b ON b.id = ba."bankId"
-       WHERE ba."employeeId" = $1 AND b."companyId" = $2 AND ba."isActive" = true
-       ORDER BY b.name ASC`,
-      [employeeId, companyId],
-    );
-  }
-
-  async getAuthorizedBanks(companyId: number, employeeId: number): Promise<Bank[]> {
-    return this.tenantPrisma.query<Bank>(
-      `SELECT b.*
-       FROM banks b
-       JOIN bank_authorizations ba ON ba."bankId" = b.id
-       WHERE b."companyId" = $1 AND ba."employeeId" = $2 AND ba."isActive" = true AND b."isActive" = true AND b."deletedAt" IS NULL
-       ORDER BY b.name ASC`,
-      [companyId, employeeId],
-    );
-  }
-
-  async isAuthorizedOnBank(
-    employeeId: number,
-    bankId: number,
-    action?: 'view' | 'deposit' | 'withdraw' | 'transfer',
-  ): Promise<boolean> {
-    const auth = await this.tenantPrisma.queryOne<BankAuthorization>(
-      `SELECT * FROM bank_authorizations WHERE "bankId" = $1 AND "employeeId" = $2 AND "isActive" = true`,
-      [bankId, employeeId],
-    );
-
-    if (!auth) return false;
-
-    switch (action) {
-      case 'view': return auth.canView;
-      case 'deposit': return auth.canDeposit;
-      case 'withdraw': return auth.canWithdraw;
-      case 'transfer': return auth.canTransfer;
-      default: return true;
-    }
-  }
-
-  async validateTransferAuthorization(
-    employeeId: number,
-    items: Array<{ sourceBankId?: number; destinationBankId: number; amount: number }>,
-  ): Promise<string[]> {
-    const errors: string[] = [];
-
-    for (const item of items) {
-      if (item.sourceBankId) {
-        const sourceAuth = await this.tenantPrisma.queryOne<BankAuthorization>(
-          `SELECT * FROM bank_authorizations WHERE "bankId" = $1 AND "employeeId" = $2 AND "isActive" = true`,
-          [item.sourceBankId, employeeId],
-        );
-
-        if (!sourceAuth || !sourceAuth.canTransfer) {
-          errors.push(`Not authorized to transfer from bank ID ${item.sourceBankId}`);
-        } else if (sourceAuth.maxAmount && item.amount > Number(sourceAuth.maxAmount)) {
-          errors.push(`Transfer amount exceeds maximum allowed for bank ID ${item.sourceBankId}`);
-        }
-      }
-
-      const destAuth = await this.tenantPrisma.queryOne<BankAuthorization>(
-        `SELECT * FROM bank_authorizations WHERE "bankId" = $1 AND "employeeId" = $2 AND "isActive" = true`,
-        [item.destinationBankId, employeeId],
-      );
-
-      if (!destAuth || !destAuth.canDeposit) {
-        errors.push(`Not authorized to deposit to bank ID ${item.destinationBankId}`);
-      }
-    }
-
-    return errors;
   }
 
   // ============================================================================

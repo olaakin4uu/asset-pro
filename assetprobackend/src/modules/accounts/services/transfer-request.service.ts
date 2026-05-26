@@ -99,9 +99,9 @@ export class TransferRequestService {
    */
   async generateSingle(companyId: number, requestId: number): Promise<TransferRequestData> {
     const request = await this.tenantPrisma.queryOne<Record<string, unknown>>(
-      `SELECT er.*, e."firstName" || ' ' || e."lastName" as "requesterName"
+      `SELECT er.*,
+         er."requesterName" as "requesterName"
        FROM expense_requests er
-       JOIN employees e ON e.id = er."requesterId"
        WHERE er.id = $1 AND er."companyId" = $2 AND er."deletedAt" IS NULL`,
       [requestId, companyId],
     );
@@ -167,9 +167,9 @@ export class TransferRequestService {
 
     // Get all expense requests
     const requests = await this.tenantPrisma.query<Record<string, unknown>>(
-      `SELECT er.*, e."firstName" || ' ' || e."lastName" as "requesterName"
+      `SELECT er.*,
+         er."requesterName" as "requesterName"
        FROM expense_requests er
-       JOIN employees e ON e.id = er."requesterId"
        WHERE er.id = ANY($1::int[]) AND er."companyId" = $2 AND er."deletedAt" IS NULL
        ORDER BY er.id`,
       [requestIds, companyId],
@@ -287,12 +287,12 @@ export class TransferRequestService {
 
   async generatePaymentVoucher(companyId: number, requestId: number): Promise<string> {
     const request = await this.tenantPrisma.queryOne<Record<string, unknown>>(
-      `SELECT er.*, e."firstName" || ' ' || e."lastName" as "requesterName",
+      `SELECT er.*,
+              er."requesterName" as "requesterName",
               d.name as "departmentName",
               b."bankName" as "paidFromBank", b."accountNumber" as "paidFromAccount",
               je."entryNumber" as "journalEntryNumber"
        FROM expense_requests er
-       JOIN employees e ON e.id = er."requesterId"
        LEFT JOIN departments d ON d.id = er."departmentId"
        LEFT JOIN banks b ON b.id = er."bankAccountId"
        LEFT JOIN journal_entries je ON je.id = er."journalEntryId"
@@ -382,9 +382,9 @@ export class TransferRequestService {
 
   async generateExpenseMemo(companyId: number, requestId: number): Promise<string> {
     const request = await this.tenantPrisma.queryOne<Record<string, unknown>>(
-      `SELECT er.*, e."firstName" || ' ' || e."lastName" as "requesterName"
+      `SELECT er.*,
+         er."requesterName" as "requesterName"
        FROM expense_requests er
-       JOIN employees e ON e.id = er."requesterId"
        WHERE er.id = $1 AND er."companyId" = $2 AND er."deletedAt" IS NULL`,
       [requestId, companyId],
     );

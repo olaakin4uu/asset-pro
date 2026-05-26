@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { CommonModule } from '../../common/common.module';
 import { AuthModule } from '../auth/auth.module';
 import { CoreModule } from '../core/core.module';
-import { PrintingModule } from '../printing/printing.module';
 
 // Services
 import {
@@ -59,7 +58,7 @@ import {
 import { FeatureGuard } from '../../common/guards/feature.guard';
 
 @Module({
-  imports: [CommonModule, AuthModule, CoreModule, PrintingModule],
+  imports: [CommonModule, AuthModule, CoreModule],
   controllers: [
     AccountsController,
     JournalEntriesController,

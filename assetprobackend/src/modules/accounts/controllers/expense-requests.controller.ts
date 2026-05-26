@@ -7,14 +7,11 @@ import {
   Body,
   Param,
   Query,
-  Res,
   UseGuards,
   ParseIntPipe,
   HttpCode,
   HttpStatus,
-  StreamableFile,
 } from '@nestjs/common';
-import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
@@ -25,7 +22,6 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { ExpenseRequestService } from '../services/expense-request.service';
 import { TransferRequestService } from '../services/transfer-request.service';
 import { BatchImportService } from '../services/batch-import.service';
-import { PdfGeneratorService } from '../../printing/services/pdf-generator.service';
 import {
   CreateExpenseRequestDto,
   UpdateExpenseRequestDto,
@@ -53,7 +49,6 @@ export class ExpenseRequestsController {
     private readonly expenseRequestService: ExpenseRequestService,
     private readonly transferRequestService: TransferRequestService,
     private readonly batchImportService: BatchImportService,
-    private readonly pdfGeneratorService: PdfGeneratorService,
   ) {}
 
   @Post()
@@ -308,97 +303,6 @@ export class ExpenseRequestsController {
     @CurrentUser() user: AuthUser,
   ) {
     await this.expenseRequestService.removeAttachment(user.companyId, id, attachmentId);
-  }
-
-  // ============================================================================
-  // TRANSFER REQUEST PDF
-  // ============================================================================
-
-  @Get(':id/payment-voucher')
-  @ApiOperation({ summary: 'Generate Payment Voucher PDF for a paid expense request' })
-  @ApiResponse({ status: 200, description: 'PDF generated' })
-  async generatePaymentVoucher(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() user: AuthUser,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const html = await this.transferRequestService.generatePaymentVoucher(user.companyId, id);
-    const pdfBuffer = await this.pdfGeneratorService.htmlToPdfPublic(html);
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Payment-Voucher-${id}.pdf"`,
-    });
-    return new StreamableFile(pdfBuffer);
-  }
-
-  @Get(':id/expense-memo')
-  @ApiOperation({ summary: 'Generate Expense Memo PDF' })
-  @ApiResponse({ status: 200, description: 'PDF generated' })
-  async generateMemo(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() user: AuthUser,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const html = await this.transferRequestService.generateExpenseMemo(user.companyId, id);
-    const pdfBuffer = await this.pdfGeneratorService.htmlToPdfPublic(html);
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Expense-Memo-${id}.pdf"`,
-    });
-    return new StreamableFile(pdfBuffer);
-  }
-
-  @Post('transfer-request/batch')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Generate batch transfer request PDF grouped by source bank' })
-  @ApiResponse({ status: 200, description: 'PDF generated' })
-  async generateBatchTransferRequest(
-    @Body() body: { requestIds: number[]; sourceBankAccountId: number },
-    @CurrentUser() user: AuthUser,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const data = await this.transferRequestService.generateBatch(
-      user.companyId, body.requestIds, body.sourceBankAccountId,
-    );
-    const html = this.transferRequestService.renderHtml(data);
-    const pdfBuffer = await this.pdfGeneratorService.htmlToPdfPublic(html);
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Transfer-Request-${new Date().toISOString().slice(0, 10)}.pdf"`,
-    });
-    return new StreamableFile(pdfBuffer);
-  }
-
-  @Post(':id/transfer-request')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Generate transfer request PDF for a single expense request' })
-  @ApiResponse({ status: 200, description: 'PDF generated' })
-  async generateTransferRequest(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { sourceBankAccountId: number },
-    @CurrentUser() user: AuthUser,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const data = await this.transferRequestService.generateSingle(user.companyId, id);
-    // Fill in source bank details. Fetched directly (not via generateBatch) so
-    // reprints work for already-paid requests — generateBatch rejects paid items
-    // for double-payment prevention, which doesn't apply to a single reprint.
-    if (body.sourceBankAccountId) {
-      const bank = await this.transferRequestService.getSourceBankDetails(
-        user.companyId, body.sourceBankAccountId,
-      );
-      data.bankName = bank.bankName;
-      data.bankBranch = bank.bankBranch;
-      data.bankCity = bank.bankCity;
-      data.sourceAccountNumber = bank.sourceAccountNumber;
-    }
-    const html = this.transferRequestService.renderHtml(data);
-    const pdfBuffer = await this.pdfGeneratorService.htmlToPdfPublic(html);
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Transfer-Request-${data.beneficiaries[0]?.name || id}.pdf"`,
-    });
-    return new StreamableFile(pdfBuffer);
   }
 
   @Delete(':id')

@@ -902,67 +902,14 @@ export class InternalControlsReportService {
     }
   }
 
-  private async gatherCustomersWithoutAR(companyId: number): Promise<CustomerWithoutAR[]> {
-    try {
-      const rows = await this.tenantPrisma.query<Row>(
-        `SELECT c.id, c.name, c.code,
-                COALESCE((
-                  SELECT SUM(si."balanceDue")
-                  FROM sales_invoices si
-                  WHERE si."customerId" = c.id
-                    AND si.status NOT IN ('draft','cancelled','voided','paid')
-                    AND si."deletedAt" IS NULL
-                ), 0) as "outstandingBalance"
-         FROM customers c
-         WHERE c."companyId" = $1
-           AND c."accountsReceivableId" IS NULL
-           AND c."deletedAt" IS NULL
-           AND c."isActive" = true
-         ORDER BY "outstandingBalance" DESC`,
-        [companyId],
-      );
-
-      return rows.map((r) => ({
-        id: Number(r['id']),
-        name: str(r['name']),
-        code: str(r['code']),
-        outstandingBalance: num(r['outstandingBalance']),
-      }));
-    } catch (err) {
-      this.logger.warn(`customersWithoutAR query failed: ${(err as Error).message}`);
-      return [];
-    }
+  private async gatherCustomersWithoutAR(_companyId: number): Promise<CustomerWithoutAR[]> {
+    // AssetPro has no customers table — return empty array
+    return [];
   }
 
-  private async gatherSuppliersWithoutAP(companyId: number): Promise<SupplierWithoutAP[]> {
-    try {
-      const rows = await this.tenantPrisma.query<Row>(
-        `SELECT s.id, s.name, s.code,
-                COALESCE((
-                  SELECT SUM(pi."balanceDue")
-                  FROM purchase_invoices pi
-                  WHERE pi."supplierId" = s.id
-                    AND pi.status NOT IN ('draft','cancelled','voided','paid')
-                    AND pi."deletedAt" IS NULL
-                ), 0) as "outstandingBalance"
-         FROM suppliers s
-         WHERE s."companyId" = $1
-           AND s."accountsPayableId" IS NULL
-           AND s."deletedAt" IS NULL
-         ORDER BY "outstandingBalance" DESC`,
-        [companyId],
-      );
-
-      return rows.map((r) => ({
-        id: Number(r['id']),
-        name: str(r['name']),
-        code: str(r['code']),
-        outstandingBalance: num(r['outstandingBalance']),
-      }));
-    } catch (err) {
-      this.logger.warn(`suppliersWithoutAP query failed: ${(err as Error).message}`);
-      return [];
-    }
+  private async gatherSuppliersWithoutAP(_companyId: number): Promise<SupplierWithoutAP[]> {
+    // AssetPro has no suppliers table — return empty array
+    return [];
   }
 
   private async gatherBanksWithoutGL(companyId: number): Promise<BankWithoutGL[]> {
@@ -1187,24 +1134,8 @@ export class InternalControlsReportService {
     const result: InternalControlsReport['creditRisk'] = {
       customersOverCreditLimit: [], overdueInvoicesCount: 0, overdueInvoicesValue: 0, averageDaysOverdue: 0,
     };
+    // AssetPro has no customers table — customersOverCreditLimit always empty
     try {
-      // Customers over credit limit
-      const overLimit = await this.tenantPrisma.query<Row>(
-        `SELECT c.name, c.code, COALESCE(c."creditLimit", 0) as "creditLimit",
-                COALESCE((SELECT SUM(si."balanceDue") FROM sales_invoices si
-                  WHERE si."customerId" = c.id AND si.status NOT IN ('draft','cancelled','voided','paid') AND si."deletedAt" IS NULL), 0) as "outstandingBalance"
-         FROM customers c
-         WHERE c."companyId" = $1 AND c."isActive" = true AND c."deletedAt" IS NULL
-           AND COALESCE(c."creditLimit", 0) > 0
-         HAVING COALESCE((SELECT SUM(si."balanceDue") FROM sales_invoices si
-           WHERE si."customerId" = c.id AND si.status NOT IN ('draft','cancelled','voided','paid') AND si."deletedAt" IS NULL), 0) > COALESCE(c."creditLimit", 0)`,
-        [companyId]);
-      result.customersOverCreditLimit = overLimit.map(r => ({
-        name: str(r['name']), code: str(r['code']),
-        creditLimit: num(r['creditLimit']), outstandingBalance: num(r['outstandingBalance']),
-        overAmount: num(r['outstandingBalance']) - num(r['creditLimit']),
-      }));
-
       // Overdue invoices
       const overdue = await this.tenantPrisma.queryOne<Row>(
         `SELECT COUNT(*)::int as count, COALESCE(SUM("balanceDue"), 0) as total,

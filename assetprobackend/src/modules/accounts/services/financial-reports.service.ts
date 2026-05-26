@@ -1780,14 +1780,13 @@ export class FinancialReportsService {
       invoiceNumber: string; invoiceDate: Date; customerName: string;
       subtotal: number; vatRate: number; vatAmount: number; total: number; vatCode: string;
     }>(
-      `SELECT si."invoiceNumber", si."invoiceDate", c.name as "customerName",
+      `SELECT si."invoiceNumber", si."invoiceDate", '' as "customerName",
               sil.amount as subtotal, sil."taxPercent" as "vatRate",
               sil."taxAmount" as "vatAmount",
               (sil.amount + COALESCE(sil."taxAmount", 0)) as total,
               COALESCE(v.code, '') as "vatCode"
        FROM sales_invoice_lines sil
        JOIN sales_invoices si ON si.id = sil."salesInvoiceId"
-       LEFT JOIN customers c ON c.id = si."customerId"
        LEFT JOIN ifrs_vats v ON v.id = sil."vatId"
        WHERE si."companyId" = $1 AND si."invoiceDate" BETWEEN $2::date AND $3::date
          AND si.status IN ('posted', 'paid', 'partial')
@@ -1801,14 +1800,13 @@ export class FinancialReportsService {
       invoiceNumber: string; invoiceDate: Date; supplierName: string;
       subtotal: number; vatRate: number; vatAmount: number; total: number; vatCode: string;
     }>(
-      `SELECT pi."invoiceNumber", pi."invoiceDate", s.name as "supplierName",
+      `SELECT pi."invoiceNumber", pi."invoiceDate", '' as "supplierName",
               pil.amount as subtotal, COALESCE(pil."taxAmount", 0) / NULLIF(pil.amount, 0) * 100 as "vatRate",
               COALESCE(pil."taxAmount", 0) as "vatAmount",
               (pil.amount + COALESCE(pil."taxAmount", 0)) as total,
               COALESCE(v.code, '') as "vatCode"
        FROM purchase_invoice_lines pil
        JOIN purchase_invoices pi ON pi.id = pil."purchaseInvoiceId"
-       LEFT JOIN suppliers s ON s.id = pi."supplierId"
        LEFT JOIN ifrs_vats v ON v.id = pil."vatId"
        WHERE pi."companyId" = $1 AND pi."invoiceDate" BETWEEN $2::date AND $3::date
          AND pi.status IN ('posted', 'approved', 'paid', 'partial')
@@ -1849,7 +1847,7 @@ export class FinancialReportsService {
       grossAmount: number; whtRate: number; whtAmount: number; netAmount: number;
       whtCategory: string; whtCode: string;
     }>(
-      `SELECT pi."invoiceNumber", pi."invoiceDate", s.name as "supplierName",
+      `SELECT pi."invoiceNumber", pi."invoiceDate", '' as "supplierName",
               pil.amount as "grossAmount",
               COALESCE(pil."withholdingTaxAmount", 0) / NULLIF(pil.amount, 0) * 100 as "whtRate",
               COALESCE(pil."withholdingTaxAmount", 0) as "whtAmount",
@@ -1858,7 +1856,6 @@ export class FinancialReportsService {
               COALESCE(w.code, '') as "whtCode"
        FROM purchase_invoice_lines pil
        JOIN purchase_invoices pi ON pi.id = pil."purchaseInvoiceId"
-       LEFT JOIN suppliers s ON s.id = pi."supplierId"
        LEFT JOIN withholding_taxes w ON w.id = pil."withholdingTaxId"
        WHERE pi."companyId" = $1 AND pi."invoiceDate" BETWEEN $2::date AND $3::date
          AND pi.status IN ('posted', 'approved', 'paid', 'partial')
@@ -1920,17 +1917,16 @@ export class FinancialReportsService {
       totalAmount: number; paidAmount: number; balanceDue: number;
     }>(
       `SELECT si.id, si."invoiceNumber", si."invoiceDate", si."dueDate",
-              c.name as "customerName", c.id as "customerId",
+              '' as "customerName", COALESCE(si."customerId", 0) as "customerId",
               si."totalAmount", COALESCE(si."paidAmount", 0) as "paidAmount",
               si."totalAmount" - COALESCE(si."paidAmount", 0) as "balanceDue"
        FROM sales_invoices si
-       LEFT JOIN customers c ON c.id = si."customerId"
        WHERE si."companyId" = $1
          AND si."invoiceDate" <= $2::date
          AND si.status NOT IN ('draft', 'cancelled', 'void')
          AND si."totalAmount" - COALESCE(si."paidAmount", 0) > 0.01
          AND si."deletedAt" IS NULL
-       ORDER BY c.name ASC, si."dueDate" ASC`,
+       ORDER BY si."dueDate" ASC`,
       [companyId, asOfDate],
     );
 
@@ -2016,17 +2012,16 @@ export class FinancialReportsService {
       totalAmount: number; paidAmount: number; balanceDue: number;
     }>(
       `SELECT pi.id, pi."invoiceNumber", pi."invoiceDate", pi."dueDate",
-              s.name as "supplierName", s.id as "supplierId",
+              '' as "supplierName", COALESCE(pi."supplierId", 0) as "supplierId",
               pi."totalAmount", COALESCE(pi."amountPaid", 0) as "paidAmount",
               pi."totalAmount" - COALESCE(pi."amountPaid", 0) as "balanceDue"
        FROM purchase_invoices pi
-       LEFT JOIN suppliers s ON s.id = pi."supplierId"
        WHERE pi."companyId" = $1
          AND pi."invoiceDate" <= $2::date
          AND pi.status NOT IN ('draft', 'cancelled', 'void')
          AND pi."totalAmount" - COALESCE(pi."amountPaid", 0) > 0.01
          AND pi."deletedAt" IS NULL
-       ORDER BY s.name ASC, pi."dueDate" ASC`,
+       ORDER BY pi."dueDate" ASC`,
       [companyId, asOfDate],
     );
 
